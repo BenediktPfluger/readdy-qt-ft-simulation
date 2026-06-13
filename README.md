@@ -45,9 +45,12 @@ particles come within `binding_radius`, at rate `kon`:
 - **Harmonic bonds** (`k_bond`) hold bonded particles inside a cluster at equilibrium length
   `r_Qt + r_Ft`.
 
-**Equilibration vs production.** Equilibration runs with **WCA only and reactions disabled**
-to relax initial random positions; production then switches on attractions (LJ) and the
-binding reactions. This split is handled by `equilibrate_system()` + `run_simulation()`.
+**Equilibration vs production.** Equilibration runs with **reactions disabled** and a
+purely-repulsive **WCA** potential (the `equilibration_potential` config field, default
+`"WCA"`) to relax initial random positions without attraction; production then switches on
+attractions (LJ via `lj.potential_type`) and the binding reactions. This split is handled by
+`equilibrate_system()` + `run_simulation()`. Set `equilibration_potential="LJ"` to equilibrate
+under the full attractive potential instead.
 
 **Integrator / environment.** EulerBD Brownian-dynamics integrator, Gillespie reactions,
 cubic periodic box, `T = 300 K`.
@@ -154,6 +157,7 @@ values — see the footnote.
 | `lj.potential_type` | `"WCA"` (repulsive) or `"LJ"` (attractive) | – | `LJ` for production |
 | `box_size` | cubic box edge | nm | (1000, 1000, 1000) |
 | `temperature` | – | K | 300 |
+| `equilibration_potential` | potential during equilibration (`"WCA"` or `"LJ"`); reactions always off | – | `WCA` |
 | `timestep` | integration step | ns | 0.01–0.03 (10–30 ps) |
 | `n_steps` | total steps (→ 50–150 µs) | – | 5,000,000 |
 | `record_stride`, `observable_stride` | save cadence | steps | 100 |
@@ -331,8 +335,36 @@ binding rate kon=25, 20 ps timestep, 100 µs total.
 - **WCA is for equilibration only**; production must use `potential_type="LJ"` to get attraction.
 - **Large files.** Each `trajectory.h5` / `trajectory.xyz` can be ~1.6 GB; `ensemble_state.json`
   can reach ~130 MB. Use `particles_observable_stride=None` (default) to avoid storing per-particle
-  positions unless you need them, and a coarse `record_stride`/`observable_stride`.
+  positions unless you need them, and a coarse `record_stride`/`observable_stride`. The unread
+  `forces`/`virial` observables are recorded on a coarse `heavy_observable_stride`
+  (default 100× `observable_stride`) so they don't dominate file size.
 - **Determinism:** results depend on `rng_seed`; ensembles assign one seed per replica.
+
+---
+
+## 11a. Known modelling caveats
+
+These are deliberate simplifications / open questions in the current physical model, documented
+here rather than silently fixed (see `CODE_REVIEW.md` for IDs and history):
+
+- **(P2) LJ minimum sits ~12% beyond the bond length.** σ is set to the contact distance
+  (`σ = r_i + r_j`), so the 12-6 LJ minimum is at `2^(1/6)·σ ≈ 1.122·σ`, while the harmonic bond
+  equilibrium length is `r0 = r_i + r_j = σ`. Bonded pairs therefore feel both the bond and the
+  pair LJ with mismatched minima (ReaDDy does not exclude intra-topology pairs from pair
+  potentials). Rg/contact metrics inherit this offset. **Deferred** — revisit with a small
+  two-particle probe before changing the σ/bond convention.
+- **(P3) Cluster diffusion = monomer diffusion.** `ParticleConfig.cluster_diffusion` defaults to
+  the monomer `diffusion`; large clusters do not slow down as `D ∝ 1/R`. Set `cluster_diffusion`
+  explicitly if you need size-dependent mobility.
+- **(P4) `kon` is a microscopic rate.** It is passed straight to ReaDDy's spatial-reaction `rate`
+  (a per-pair `1/time` rate), not the macroscopic `nm³/(ns·particle)` constant the older label
+  implied. Treat the swept `kon` values as microscopic rates.
+- **(P5) Diffusion ratio is not Stokes–Einstein consistent.** The Qt/Ft `D` values are a
+  coarse-graining choice and do not follow `D ∝ 1/r` from the radii; this is intentional, noted
+  here to avoid confusion.
+- **Cluster bond graphs are spanning trees.** Every reaction adds exactly one bond and never closes
+  a ring, so clusters are acyclic (`n_bonds = n_particles − 1`); coordination numbers from the bond
+  graph reflect that tree, not true spatial contact coordination.
 
 ---
 

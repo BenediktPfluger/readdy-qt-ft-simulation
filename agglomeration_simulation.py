@@ -403,7 +403,13 @@ class SimulationConfig:
     
     # Physical parameters
     temperature: float = 300.0
-    
+
+    # Potential used during equilibration (reactions are always off then). Defaults to
+    # "WCA" (purely repulsive) so equilibration relaxes overlaps without attraction,
+    # regardless of the production potential in lj.potential_type. Set to "LJ" to
+    # equilibrate under the full attractive potential instead.
+    equilibration_potential: str = "WCA"
+
     # Integration parameters
     timestep: float = 1e-4
     n_steps: int = 200000
@@ -501,6 +507,12 @@ class SimulationConfig:
         # Check timestep
         if self.timestep <= 0:
             raise ValueError(f"Timestep must be positive: {self.timestep}")
+
+        # Check equilibration potential
+        if self.equilibration_potential not in ("WCA", "LJ"):
+            raise ValueError(
+                f"equilibration_potential must be 'WCA' or 'LJ', got: {self.equilibration_potential}"
+            )
         
         # Check counts
         if self.n_qt < 0 or self.n_ft < 0:
@@ -680,6 +692,7 @@ class SimulationConfig:
             box_size=box_size,
             periodic_boundary=params.get("periodic_boundary", True),
             temperature=params.get("temperature", 300.0),
+            equilibration_potential=params.get("equilibration_potential", "WCA"),
             timestep=params.get("timestep", 1e-4),
             n_steps=params.get("n_steps", 200000),
             record_stride=params.get("record_stride", 10),
@@ -740,6 +753,7 @@ class SimulationConfig:
             "box_size": list(self.box_size),  # Convert tuple to list for JSON
             "periodic_boundary": self.periodic_boundary,
             "temperature": self.temperature,
+            "equilibration_potential": self.equilibration_potential,
             "timestep": self.timestep,
             "n_steps": self.n_steps,
             "record_stride": self.record_stride,
@@ -797,6 +811,7 @@ class SimulationConfig:
             "box_size": self.box_size,
             "periodic_boundary": self.periodic_boundary,
             "temperature": self.temperature,
+            "equilibration_potential": self.equilibration_potential,
             "timestep": self.timestep,
             "n_steps": self.n_steps,
             "total_time_ns": self.total_simulation_time,
@@ -874,6 +889,7 @@ class SimulationConfig:
         print(f"\nSimulation:")
         print(f"  Box: {self.box_size[0]} × {self.box_size[1]} × {self.box_size[2]} nm")
         print(f"  Temperature: {self.temperature} K")
+        print(f"  Equilibration potential: {self.equilibration_potential}")
         print(f"  Timestep: {self.timestep} ns ({self.timestep * 1e3:.2f} ps)")
         print(f"  Steps: {self.n_steps:,} ({self.total_simulation_time_us:.1f} µs total)")
         print(f"  Output: {self.output_file}")
@@ -992,10 +1008,13 @@ def create_system(config: SimulationConfig, equilibration_mode: bool = False) ->
     
     # Add species
     _add_species(system, config)
-    
-    # Add potentials
-    _add_potentials(system, config)
-    
+
+    # Add potentials. During equilibration, use config.equilibration_potential (WCA by
+    # default) so overlaps relax under a purely repulsive potential regardless of the
+    # production potential in config.lj.potential_type.
+    potential_override = config.equilibration_potential if equilibration_mode else None
+    _add_potentials(system, config, potential_type=potential_override)
+
     # Add topologies and reactions (skip reactions in equilibration mode)
     _add_topologies(system, config, equilibration_mode=equilibration_mode)
     
@@ -1019,19 +1038,43 @@ def _add_species(system: readdy.ReactionDiffusionSystem, config: SimulationConfi
           f"{config.qt.cluster_name}, {config.ft.cluster_name}")
 
 
-def _add_potentials(system: readdy.ReactionDiffusionSystem, config: SimulationConfig):
+def _add_potentials(
+    system: readdy.ReactionDiffusionSystem,
+    config: SimulationConfig,
+    potential_type: Optional[str] = None,
+):
     """Add Lennard-Jones potentials to the system.
-    
+
     Uses per-pair epsilon values from config.lj. Pairs with epsilon=0
     are skipped (interaction disabled).
+
+    Parameters
+    ----------
+    potential_type : str, optional
+        Override for the potential type ("WCA" or "LJ"). If None, uses
+        config.lj.potential_type / config.lj.cutoff_factor (production). When set
+        (e.g. "WCA" for equilibration), the cutoff factor is derived from that type
+        while the same per-pair epsilon values are kept.
     """
+    lj = config.lj
+
+    # Resolve potential type and cutoff factor (production vs equilibration override)
+    if potential_type is None:
+        potential_type = lj.potential_type
+        cf = lj.cutoff_factor
+    elif potential_type == "WCA":
+        cf = lj.WCA_CUTOFF_FACTOR
+    elif potential_type == "LJ":
+        cf = lj.LJ_CUTOFF_FACTOR
+    else:
+        raise ValueError(f"potential_type must be 'WCA' or 'LJ', got: {potential_type}")
+
     # Calculate sigma values
     sigma_qq = 2.0 * config.qt.radius
     sigma_ff = 2.0 * config.ft.radius
     sigma_qf = config.qt.radius + config.ft.radius
-    
+
     # Calculate cutoffs
-    cf = config.lj.cutoff_factor
     cutoff_qq = cf * sigma_qq
     cutoff_ff = cf * sigma_ff
     cutoff_qf = cf * sigma_qf
@@ -1040,8 +1083,7 @@ def _add_potentials(system: readdy.ReactionDiffusionSystem, config: SimulationCo
     ft = config.ft.name
     qtc = config.qt.cluster_name
     ftc = config.ft.cluster_name
-    lj = config.lj
-    
+
     n_registered = 0
     n_skipped = 0
     
@@ -1078,7 +1120,7 @@ def _add_potentials(system: readdy.ReactionDiffusionSystem, config: SimulationCo
     add_lj(qt,  ftc, lj.epsilon_QtFtC,   sigma_qf, cutoff_qf)
     
     skip_str = f", {n_skipped} disabled" if n_skipped > 0 else ""
-    print(f"✓ {config.lj.potential_type} potentials ({n_registered} registered{skip_str}): "
+    print(f"✓ {potential_type} potentials ({n_registered} registered{skip_str}): "
           f"ε_QQ={lj.epsilon_QtQt}, ε_FF={lj.epsilon_FtFt}, ε_QF={lj.epsilon_QtFt}")
 
 
@@ -1397,7 +1439,8 @@ def equilibrate_system(
     """
     print(f"\n{'=' * 60}")
     print("EQUILIBRATION")
-    print(f"  Running {n_steps:,} steps without reactions")
+    print(f"  Running {n_steps:,} steps without reactions "
+          f"({config.equilibration_potential} potential)")
     print(f"{'=' * 60}\n")
     
     # Create system in equilibration mode (no reactions)

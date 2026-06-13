@@ -214,7 +214,7 @@ isolated physics → cheap safe bugfixes → logic dedup (formats preserved) →
 |------|-------|-------------|------|
 | **0** | Safety net: this doc + smoke harness + capture baselines + collect decisions | none | **DONE** — `tools/smoke_test.py` green on current code; R1 baseline captured (drift demonstrated) |
 | **1** | Cheap format-neutral fixes: B-forces (coarse-stride forces/virial), B-stride, B-searchsorted, B-except, B-times, B-xyz, B-treewarn | none (trajectory contents shrink) | **DONE** — harness green (exit 0); legacy configs load (back-compat verified); A5 skipped (perf) |
-| **2** | Physics: P1 (equilibration_potential flag, default WCA); P2/P3/P4/P5 document-only | none | with default config, equilibration registers only repulsive potentials; harness green; README caveats added |
+| **2** | Physics: P1 (equilibration_potential flag, default WCA); P2/P3/P4/P5 document-only | none | **DONE** — equilibration registers WCA while production registers LJ (verified); harness green; legacy configs default to WCA; README caveats §11a added |
 | **3** | Logic dedup, files in place: R3+B-prefix → R2 → R5 → R4 → R1/C3/C5 | **yes (R1)** | **byte-compare** CLI vs `save_for_plotting()` output against Phase-0 baseline |
 | **4** | Restructure into `qtft/` package + shims; update notebooks & SLURM in lockstep | rename only | notebooks run; CLIs work; SLURM paths correct |
 
@@ -224,11 +224,11 @@ isolated physics → cheap safe bugfixes → logic dedup (formats preserved) →
 
 | ID | Finding | Phase | Status |
 |----|---------|-------|--------|
-| P1 | Equilibration uses LJ not WCA → `equilibration_potential` flag (default WCA) | 2 | decided |
-| P2 | LJ-min vs bond-length mismatch | deferred → doc | decided: defer |
-| P3 | Cluster D = monomer D | doc-only | decided: doc |
-| P4 | `kon` unit label | doc-only | decided: doc |
-| P5 | Stokes–Einstein D ratio | doc-only | decided: doc |
+| P1 | Equilibration uses LJ not WCA → `equilibration_potential` flag (default WCA) | 2 | **done** |
+| P2 | LJ-min vs bond-length mismatch | deferred → doc | **done** (README §11a) |
+| P3 | Cluster D = monomer D | doc-only | **done** (README §11a) |
+| P4 | `kon` unit label | doc-only | **done** (README §11a) |
+| P5 | Stokes–Einstein D ratio | doc-only | **done** (README §11a) |
 | A5 | `skin=0.0` performance | 1 (opt) | skipped — perf-only, deferred |
 | B-forces | forces/virial → coarse stride (keep, don't drop) | 1 | **done** |
 | B-stride | frame mis-alignment when strides differ | 1 | **done** (time-matched) |
