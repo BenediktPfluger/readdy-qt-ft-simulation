@@ -182,28 +182,44 @@ and write structure. → One I/O writer (subsumed by R1).
 
 ---
 
-## 5. Suggested file structure & naming
+## 5. Phase 4 file structure & naming — FINALIZED
 
-Drop the redundant `agglomeration_` prefix; split config out of the engine; make CLIs thin
-wrappers. **Keep on-disk formats/filenames unchanged.**
+Decisions (user): package name **`qtft`**; **keep `analysis.py` and `plotting.py` whole**
+(no sub-split this phase); **add re-export shims, then remove them at the end**.
+**Keep on-disk formats/filenames unchanged** — only import paths change.
 
 ```
-qtft/
-├── config.py     # *Config dataclasses + shared format_param_string()   (R3 / B-prefix)
-├── system.py     # create_system, _add_species / _add_potentials / _add_topologies
-├── engine.py     # create_simulation, place_particles, run_simulation, equilibrate_system, run_one()  (R5)
-├── analysis.py   # metrics (matplotlib-free)   [optionally split: kinetics / structure / export]
-├── ensemble.py   # EnsembleSimulation
-├── plotting.py   # [optionally split: single / ensemble / comparison]
-└── io.py         # single source of the JSON/NPZ schema   (R1 / C5)
+qtft/                  # importable package
+├── __init__.py        # re-export common public API (SimulationConfig, run_one,
+│                      #   EnsembleSimulation, create_system, ...)
+├── config.py          # ParticleConfig, TopologyConfig, LennardJonesConfig,
+│                      #   SimulationConfig, format_param_string, NS_TO_US, _steps_to_us
+├── system.py          # create_system, _add_species/_add_potentials/_add_topologies
+├── engine.py          # create_simulation, _register_observables, place_particles,
+│                      #   _make_particle_rngs, _random_positions, run_simulation,
+│                      #   equilibrate_system, run_one()
+├── analysis.py        # (whole) matplotlib-free metrics + convert_h5_to_xyz + load_ensemble_data
+├── ensemble.py        # EnsembleSimulation + module-level workers
+├── comparison.py      # cross-ensemble helpers moved out of analyze_ensemble.py
+└── plotting.py        # (whole) all matplotlib
 scripts/
-├── run_replica.py        # → qtft.engine.run_one
-└── analyze_ensemble.py   # → qtft.ensemble + qtft.io  (comparison helpers move to analysis)
+├── run_replica.py        # thin: argparse -> qtft.run_one
+└── analyze_ensemble.py   # thin: argparse -> qtft.ensemble + qtft.comparison
 ```
 
-⚠ Renaming breaks the notebooks' imports and the SLURM `scp`/run lines, and the comparison helpers
-in `analyze_ensemble.py` are analysis (not script) code. Move in lockstep, or add re-export shims for
-a gentle migration. **Do this last**, as a pure rename with no logic change.
+Module mapping: `agglomeration_simulation.py` -> config + system + engine;
+`agglomeration_analysis.py` -> analysis; `agglomeration_ensemble_simulation.py` -> ensemble;
+`agglomeration_plotting.py` -> plotting; `analyze_ensemble.py` -> scripts/analyze_ensemble.py
+(main) + comparison.py (helpers); `run_replica.py` -> scripts/run_replica.py.
+
+Migration mechanics (each its own commit, harness green between):
+1. Create `qtft/`, move modules, split simulation.py into config/system/engine.
+2. Move CLIs to `scripts/`; add repo-root re-export shims (`agglomeration_*.py`).
+3. Update notebooks, SLURM generation (scp + run lines, sys.path), and the smoke harness.
+4. Remove the shims.
+
+⚠ Renaming breaks the notebooks' imports and the SLURM `scp`/run lines; comparison helpers in
+`analyze_ensemble.py` are library (not script) code. Pure move, no logic change.
 
 ---
 
