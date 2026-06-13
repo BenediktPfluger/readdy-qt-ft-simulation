@@ -213,7 +213,7 @@ isolated physics → cheap safe bugfixes → logic dedup (formats preserved) →
 | Phase | Scope | Format risk | Gate |
 |------|-------|-------------|------|
 | **0** | Safety net: this doc + smoke harness + capture baselines + collect decisions | none | **DONE** — `tools/smoke_test.py` green on current code; R1 baseline captured (drift demonstrated) |
-| **1** | Cheap format-neutral fixes: B-forces (coarse-stride forces/virial), B-stride, B-searchsorted, B-except, B-times, B-xyz, B-treewarn, A5(opt) | none (trajectory contents shrink) | harness green; smaller `trajectory.h5`; all analysis/plots run |
+| **1** | Cheap format-neutral fixes: B-forces (coarse-stride forces/virial), B-stride, B-searchsorted, B-except, B-times, B-xyz, B-treewarn | none (trajectory contents shrink) | **DONE** — harness green (exit 0); legacy configs load (back-compat verified); A5 skipped (perf) |
 | **2** | Physics: P1 (equilibration_potential flag, default WCA); P2/P3/P4/P5 document-only | none | with default config, equilibration registers only repulsive potentials; harness green; README caveats added |
 | **3** | Logic dedup, files in place: R3+B-prefix → R2 → R5 → R4 → R1/C3/C5 | **yes (R1)** | **byte-compare** CLI vs `save_for_plotting()` output against Phase-0 baseline |
 | **4** | Restructure into `qtft/` package + shims; update notebooks & SLURM in lockstep | rename only | notebooks run; CLIs work; SLURM paths correct |
@@ -229,14 +229,14 @@ isolated physics → cheap safe bugfixes → logic dedup (formats preserved) →
 | P3 | Cluster D = monomer D | doc-only | decided: doc |
 | P4 | `kon` unit label | doc-only | decided: doc |
 | P5 | Stokes–Einstein D ratio | doc-only | decided: doc |
-| A5 | `skin=0.0` performance | 1 (opt) | open |
-| B-forces | forces/virial → coarse stride (keep, don't drop) | 1 | decided |
-| B-stride | frame mis-alignment when strides differ | 1 | open |
-| B-searchsorted | searchsorted on non-monotonic series | 1 | open |
-| B-except | broad `except` | 1 | open |
-| B-times | "ns" docstrings are step numbers | 1 | open |
-| B-xyz | positional xyz type mapping | 1 | open |
-| B-treewarn | trees → `n−1` exact, drop warning | 1 | open |
+| A5 | `skin=0.0` performance | 1 (opt) | skipped — perf-only, deferred |
+| B-forces | forces/virial → coarse stride (keep, don't drop) | 1 | **done** |
+| B-stride | frame mis-alignment when strides differ | 1 | **done** (time-matched) |
+| B-searchsorted | searchsorted on non-monotonic series | 1 | **done** (first-crossing) |
+| B-except | broad `except` | 1 | **done** |
+| B-times | "ns" docstrings are step numbers | 1 | **done** |
+| B-xyz | positional xyz type mapping | 1 | **done** (from `particle_types`) |
+| B-treewarn | trees → `n−1` exact, drop warning | 1 | **done** |
 | B-prefix | single-run filename prefix divergence | 3 (with R3) | open |
 | R3 | param-string formatting dedup | 3 | open |
 | R2 | placement dedup | 3 | open |

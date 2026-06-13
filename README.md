@@ -158,6 +158,7 @@ values — see the footnote.
 | `n_steps` | total steps (→ 50–150 µs) | – | 5,000,000 |
 | `record_stride`, `observable_stride` | save cadence | steps | 100 |
 | `particles_observable_stride` | per-particle position cadence (`None`=off, saves disk) | steps | optional |
+| `heavy_observable_stride` | cadence for unread heavy observables (forces, virial); `None`=100×`observable_stride` | steps | optional |
 | `kernel`, `n_threads` | `"CPU"`/`"SingleCPU"`, threads | – | CPU, 4+ |
 | `rng_seed` | RNG seed (per-replica in ensembles) | – | varies |
 | `output_file` | trajectory path (`None` = auto, §11) | – | auto |

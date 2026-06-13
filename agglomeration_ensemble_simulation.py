@@ -1068,9 +1068,11 @@ echo "Analysis completed at $(date)"
             times = self.statistics['times']
             for bonds in self.statistics['bonds_all']:
                 half_target = 0.5 * bonds[-1]
-                idx = np.searchsorted(bonds, half_target)
-                if idx < len(times):
-                    half_times_steps.append(times[idx])
+                # First step at/above half the final bond count. First-crossing instead of
+                # searchsorted, since bonds(t) is noisy and not guaranteed monotonic.
+                crossings = np.flatnonzero(bonds >= half_target)
+                if len(crossings) > 0 and crossings[0] < len(times):
+                    half_times_steps.append(times[crossings[0]])
             if half_times_steps:
                 # Convert step numbers to nanoseconds
                 timestep = self.base_config.timestep

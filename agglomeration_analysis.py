@@ -198,7 +198,9 @@ def get_bond_counts(
                     edge_count = 0
                     method_used = "method3_fallback"
                 else:
-                    # For multi-particle topologies without edge info, use n-1 as estimate
+                    # No explicit edge info: use n-1. In this model every reaction adds
+                    # exactly one bond and never closes a ring, so clusters are always
+                    # acyclic trees and n_bonds == n_particles - 1 EXACTLY (not an estimate).
                     edge_count = n_particles - 1
                     method_used = "method3_fallback"
                     fallback_used_for_multiparticle = True
@@ -219,8 +221,9 @@ def get_bond_counts(
             primary_method = "Method 2 (topology.graph.edges) - exact count"
             method_type = "exact"
         else:
-            primary_method = "Method 3 (n-1 fallback) - estimated"
-            method_type = "estimated"
+            # Clusters are acyclic trees here, so n-1 is exact, not an estimate.
+            primary_method = "Method 3 (n-1, exact for tree clusters)"
+            method_type = "exact"
     else:
         primary_method = "No topologies found"
         method_type = "none"
@@ -228,24 +231,14 @@ def get_bond_counts(
     # Print method summary (unless silent)
     if not silent:
         print(f"  Bond counting: {primary_method}")
-        if fallback_used_for_multiparticle:
-            print(f"  ⚠ Warning: Fallback used for multi-particle topologies - counts may be underestimated for branched clusters")
-    
+
     # Print detailed breakdown if verbose
     if verbose and not silent:
         print(f"    Detailed breakdown:")
         print(f"      Method 1 (top.edges):       {method_counts['method1_edges']} topologies")
         print(f"      Method 2 (top.graph.edges): {method_counts['method2_graph']} topologies")
-        print(f"      Method 3 (fallback n-1):    {method_counts['method3_fallback']} topologies")
-    
-    # Issue warning for fallback on multi-particle topologies
-    if fallback_used_for_multiparticle:
-        warnings.warn(
-            "Bond counting used fallback (n_particles - 1) for some multi-particle topologies. "
-            "Actual bond count may differ for branched structures.",
-            stacklevel=2
-        )
-    
+        print(f"      Method 3 (n-1, tree-exact): {method_counts['method3_fallback']} topologies")
+
     return {
         "times": np.array(times),
         "n_bonds": np.array(n_bonds),
@@ -284,7 +277,7 @@ def _extract_frame_data(
     Returns
     -------
     dict with keys:
-        times : ndarray - time points (ns)
+        times : ndarray - simulation step numbers (NOT ns; convert via _steps_to_us)
         n_frames : int - number of frames analyzed
         frame_indices : ndarray - original frame indices
         positions : list of ndarray - particle positions per frame (n_particles, 3)
@@ -316,7 +309,8 @@ def _extract_frame_data(
             use_particles_observable = True
             if verbose:
                 print("    Using particles observable for data extraction")
-    except (KeyError, Exception):
+    except (KeyError, ValueError, RuntimeError, OSError):
+        # Raised when the particles observable was not registered for this trajectory.
         use_particles_observable = False
         if verbose:
             print("    Using trajectory.read() for data extraction (particles observable not available)")
@@ -375,50 +369,57 @@ def _extract_frame_data(
         if verbose:
             print("    Reading trajectory frames...")
         
-        # Apply stride to topology frames
-        frame_indices = np.arange(0, len(topo_times_all), stride)
-        frame_set = set(frame_indices)  # For O(1) lookup
+        # `stride` applies to trajectory frames. Each kept trajectory frame is matched to the
+        # topology record at the SAME simulation step by comparing times, instead of assuming
+        # trajectory-frame index == topology-record index. That assumption only holds when
+        # record_stride == observable_stride; otherwise positions get paired with the wrong
+        # topology record. See CODE_REVIEW.md "B-stride".
+        record_stride = int(config.record_stride)
         current_frame = 0
-        
+
         # Create iterator with progress bar
         traj_iter = trajectory.read()
         if TQDM_AVAILABLE and verbose:
             # We don't know total frames, but can estimate from topology records
-            traj_iter = tqdm(traj_iter, desc="    Loading trajectory", 
+            traj_iter = tqdm(traj_iter, desc="    Loading trajectory",
                             total=len(topo_times_all), unit="frame")
-        
+
         for frame in traj_iter:
-            if current_frame in frame_set:
+            if current_frame % stride == 0:
                 # Extract positions, types, and IDs from frame
                 frame_positions = []
                 frame_type_names = []
                 frame_ids = []
-                
+
                 for particle in frame:
                     frame_positions.append(particle.position)
                     frame_type_names.append(particle.type)
                     frame_ids.append(particle.id)
-                
+
                 frame_positions = np.array(frame_positions) if frame_positions else np.zeros((0, 3))
                 frame_type_names = np.array(frame_type_names) if frame_type_names else np.array([])
                 frame_ids = np.array(frame_ids) if frame_ids else np.array([])
-                
+
+                # Actual simulation step of this trajectory frame, and the topology record
+                # recorded closest to that step.
+                frame_step = current_frame * record_stride
+                if len(topo_times_all) > 0:
+                    topo_idx = int(np.argmin(np.abs(topo_times_all - frame_step)))
+                else:
+                    topo_idx = 0
+
                 positions_list.append(frame_positions)
                 types_list.append(frame_type_names)
-                extracted_times.append(topo_times_all[current_frame])
+                extracted_times.append(frame_step)
                 extracted_frame_indices.append(current_frame)
-                
-                # Get topology info for this frame
+
+                # Get topology info for this frame (time-matched topology record)
                 _extract_topology_info(
-                    current_frame, frame_positions, frame_ids, topology_records_all,
+                    topo_idx, frame_positions, frame_ids, topology_records_all,
                     topology_ids_list, topology_particles_list, topology_edges_list
                 )
-            
+
             current_frame += 1
-            
-            # Early exit if we've processed all needed frames
-            if current_frame > frame_indices[-1]:
-                break
     
     return {
         "times": np.array(extracted_times),
@@ -631,7 +632,7 @@ def get_cluster_morphology(
     Returns
     -------
     dict with keys:
-        times : ndarray - time points (ns)
+        times : ndarray - simulation step numbers (NOT ns; convert via _steps_to_us)
         rg_per_cluster : list of list - Rg for each cluster at each frame
         size_per_cluster : list of list - size of each cluster at each frame
         mean_rg : ndarray - mean Rg per frame
@@ -810,12 +811,15 @@ def get_binding_kinetics(
     def find_half_time(times, fraction):
         if fraction[-1] < 0.5:
             return None  # Never reached 50%
-        idx = np.searchsorted(fraction, 0.5)
+        # First step at/above 0.5. Use first-crossing rather than searchsorted, which
+        # assumes a sorted array (fraction_bound is noisy and not strictly monotonic).
+        crossings = np.flatnonzero(fraction >= 0.5)
+        if len(crossings) == 0:
+            return None
+        idx = int(crossings[0])
         if idx == 0:
             return times[0]
-        if idx >= len(times):
-            return None
-        # Linear interpolation
+        # Linear interpolation between the last sub-0.5 point and the first crossing
         f0, f1 = fraction[idx-1], fraction[idx]
         t0, t1 = times[idx-1], times[idx]
         if f1 == f0:
@@ -870,7 +874,7 @@ def get_spatial_distribution(
     Returns
     -------
     dict with keys:
-        times : ndarray - time points (ns)
+        times : ndarray - simulation step numbers (NOT ns; convert via _steps_to_us)
         cluster_centers : list of ndarray - center of mass positions per frame
         cluster_sizes : list of ndarray - size of each cluster per frame
         nn_distances : list of ndarray - inter-cluster NN distance per cluster
@@ -1035,7 +1039,7 @@ def get_contact_analysis(
     Returns
     -------
     dict with keys:
-        times : ndarray - time points (ns)
+        times : ndarray - simulation step numbers (NOT ns; convert via _steps_to_us)
         mean_coord_qt : ndarray - mean coordination of QtC over time
         mean_coord_ft : ndarray - mean coordination of FtC over time
         std_coord_qt : ndarray - std of QtC coordination
@@ -1179,7 +1183,7 @@ def get_cluster_composition(
     Returns
     -------
     dict with keys:
-        times : ndarray - time points (ns)
+        times : ndarray - simulation step numbers (NOT ns; convert via _steps_to_us)
         qt_per_cluster : list of list - QtC count per cluster per frame
         ft_per_cluster : list of list - FtC count per cluster per frame
         size_per_cluster : list of list - total size per cluster per frame
@@ -1647,19 +1651,20 @@ def convert_h5_to_xyz(
     # Tolerance for detecting particles at origin
     EPS = 1e-12
     
-    # Type mapping: ReaDDy uses type_0, type_1, etc. - map to actual names
-    # Order depends on how species were added to the system
+    # Type mapping: map whatever labels ReaDDy emits to (species_name, radius).
+    # ReaDDy normally writes the real species names; as a fallback it may write
+    # "type_<id>". Build the type_<id> -> name map from the trajectory's actual
+    # {name: id} table rather than assuming the order species were added (the old
+    # hard-coded type_0->Qt ... was silently wrong if _add_species was reordered).
     type_mapping = {
         config.qt.name: (config.qt.name, config.qt.radius),
         config.ft.name: (config.ft.name, config.ft.radius),
         config.qt.cluster_name: (config.qt.cluster_name, config.qt.radius),
         config.ft.cluster_name: (config.ft.cluster_name, config.ft.radius),
-        # ReaDDy default type names
-        "type_0": (config.qt.name, config.qt.radius),
-        "type_1": (config.ft.name, config.ft.radius),
-        "type_2": (config.qt.cluster_name, config.qt.radius),
-        "type_3": (config.ft.cluster_name, config.ft.radius),
     }
+    for name, type_id in traj.particle_types.items():
+        if name in radii:
+            type_mapping[f"type_{type_id}"] = (name, radii[name])
     
     # Process the ReaDDy file and create OVITO-friendly output
     with open(temp_readdy_file, "r", encoding="utf-8", errors="replace") as f_in, \

@@ -412,6 +412,9 @@ class SimulationConfig:
     record_stride: int = 10
     observable_stride: int = 10
     particles_observable_stride: Optional[int] = None  # None = disabled, saves disk space
+    # Cadence for heavy, currently-unread observables (forces, virial). These are recorded
+    # far less often than the rest to keep trajectory files small. None = 100 x observable_stride.
+    heavy_observable_stride: Optional[int] = None
     
     # Particle counts
     n_qt: int = 200
@@ -545,6 +548,16 @@ class SimulationConfig:
     def total_simulation_time_us(self) -> float:
         """Total simulation time in µs."""
         return self.total_simulation_time / 1000.0
+
+    @property
+    def effective_heavy_observable_stride(self) -> int:
+        """Resolved stride for heavy/unread observables (forces, virial).
+
+        Defaults to 100 x observable_stride when heavy_observable_stride is None.
+        """
+        if self.heavy_observable_stride is not None:
+            return int(self.heavy_observable_stride)
+        return 100 * int(self.observable_stride)
     
     @classmethod
     def from_dict(cls, params: Dict[str, Any]) -> "SimulationConfig":
@@ -672,6 +685,7 @@ class SimulationConfig:
             record_stride=params.get("record_stride", 10),
             observable_stride=params.get("observable_stride", 10),
             particles_observable_stride=params.get("particles_observable_stride", None),
+            heavy_observable_stride=params.get("heavy_observable_stride", None),
             n_qt=params.get("n_qt", 200),
             n_ft=params.get("n_ft", 200),
             kernel=params.get("kernel", "CPU"),
@@ -731,6 +745,7 @@ class SimulationConfig:
             "record_stride": self.record_stride,
             "observable_stride": self.observable_stride,
             "particles_observable_stride": self.particles_observable_stride,
+            "heavy_observable_stride": self.heavy_observable_stride,
             "n_qt": self.n_qt,
             "n_ft": self.n_ft,
             "kernel": self.kernel,
@@ -738,7 +753,7 @@ class SimulationConfig:
             "rng_seed": self.rng_seed,
             "output_file": self.output_file,
         }
-    
+
     def to_flat_dict(self) -> Dict[str, Any]:
         """
         Convert configuration to a flat dictionary.
@@ -789,6 +804,8 @@ class SimulationConfig:
             "record_stride": self.record_stride,
             "observable_stride": self.observable_stride,
             "particles_observable_stride": self.particles_observable_stride,
+            "heavy_observable_stride": self.heavy_observable_stride,
+            "effective_heavy_observable_stride": self.effective_heavy_observable_stride,
             "n_qt": self.n_qt,
             "n_ft": self.n_ft,
             "kernel": self.kernel,
@@ -796,7 +813,7 @@ class SimulationConfig:
             "rng_seed": self.rng_seed,
             "output_file": self.output_file,
         }
-    
+
     def print_summary(self):
         """Print a formatted summary of the configuration."""
         print("=" * 60)
@@ -1211,9 +1228,14 @@ def _register_observables(simulation: readdy.Simulation, config: SimulationConfi
     
     # Thermodynamic observables
     simulation.observe.energy(stride=stride)
-    simulation.observe.forces(stride=stride, types=None)
-    simulation.observe.virial(stride=stride)
     simulation.observe.pressure(stride=stride, physical_particles=None)
+
+    # Heavy observables that are currently not read by any analysis (forces, virial).
+    # Recorded on a much coarser stride to keep trajectory files small. Forces in
+    # particular dominates trajectory.h5 size when recorded every step.
+    heavy_stride = config.effective_heavy_observable_stride
+    simulation.observe.forces(stride=heavy_stride, types=None)
+    simulation.observe.virial(stride=heavy_stride)
     
     # Reaction counts
     simulation.observe.reaction_counts(stride=stride)
@@ -1232,7 +1254,8 @@ def _register_observables(simulation: readdy.Simulation, config: SimulationConfi
         particle_to_density=1.0 / (box[0] * box[1] * box[2])
     )
     
-    print(f"✓ Observables registered (stride={stride}{particles_obs_str})")
+    print(f"✓ Observables registered (stride={stride}, "
+          f"forces/virial stride={heavy_stride}{particles_obs_str})")
 
 
 def place_particles(
