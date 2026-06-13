@@ -679,14 +679,15 @@ echo "Analysis completed at $(date)"
             print(f"  Replica {i}: Loading...")
             
             try:
+                # Open the trajectory once and reuse the handle for every observable
+                # read below, instead of reopening the HDF5 file in each get_* call.
+                traj = readdy.Trajectory(h5_file)
+
                 # Load basic data (silent=True to avoid per-replica bond method output)
-                bonds_data = get_bond_counts(h5_file, silent=True)
+                bonds_data = get_bond_counts(h5_file, trajectory=traj, silent=True)
                 self.replica_data['bonds'].append(bonds_data)
                 self.replica_data['times'].append(bonds_data['times'])
-                
-                # Load trajectory for other observables
-                traj = readdy.Trajectory(h5_file)
-                
+
                 # Energy
                 try:
                     times_e, energy = traj.read_observable_energy()
@@ -719,7 +720,7 @@ echo "Analysis completed at $(date)"
                 
                 # Cluster statistics
                 try:
-                    cluster_stats = get_cluster_statistics(h5_file)
+                    cluster_stats = get_cluster_statistics(h5_file, trajectory=traj)
                     self.replica_data['cluster_stats'].append(cluster_stats)
                 except (KeyError, ValueError, IndexError):
                     self.replica_data['cluster_stats'].append(None)
