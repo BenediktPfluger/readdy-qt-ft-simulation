@@ -50,11 +50,7 @@ from agglomeration_simulation import (
     SimulationConfig,
     NS_TO_US,
     format_param_string,
-    create_system,
-    create_simulation,
-    place_particles,
-    run_simulation,
-    equilibrate_system,
+    run_one,
 )
 
 # Import analysis functions needed for collecting and computing results
@@ -111,19 +107,10 @@ def _run_replica_worker(output_dir: str, config_path: str, equilibration_steps: 
     try:
         # Load config from file
         config = SimulationConfig.load_json(config_path)
-        
-        # Ensure output directory exists
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # Equilibration
-        pos_qt, pos_ft = equilibrate_system(config, n_steps=equilibration_steps)
-        
-        # Production run
-        system = create_system(config)
-        simulation = create_simulation(system, config)
-        place_particles(simulation, config, positions_qt=pos_qt, positions_ft=pos_ft)
-        run_simulation(simulation, config)
-        
+
+        # Run the full single-replica pipeline (equilibrate -> build -> place -> run)
+        run_one(config, equilibration_steps=equilibration_steps)
+
         return {'idx': replica_idx, 'success': True, 'error': None}
     except Exception as e:
         return {'idx': replica_idx, 'success': False, 'error': str(e)}
@@ -403,15 +390,7 @@ class EnsembleSimulation:
     def _run_single_replica(self, replica_idx: int, equilibration_steps: int):
         """Run a single replica simulation."""
         config = self.replica_configs[replica_idx]
-        
-        # Equilibration (each replica gets its own)
-        pos_qt, pos_ft = equilibrate_system(config, n_steps=equilibration_steps)
-        
-        # Production run
-        system = create_system(config)
-        simulation = create_simulation(system, config)
-        place_particles(simulation, config, positions_qt=pos_qt, positions_ft=pos_ft)
-        run_simulation(simulation, config)
+        run_one(config, equilibration_steps=equilibration_steps)
     
     def generate_slurm_scripts(
         self,

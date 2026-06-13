@@ -1533,5 +1533,53 @@ def equilibrate_system(
     print("EQUILIBRATION COMPLETE")
     print(f"  Retrieved {len(positions_qt)} Qt + {len(positions_ft)} Ft positions")
     print(f"{'=' * 60}\n")
-    
+
     return positions_qt, positions_ft
+
+
+def run_one(
+    config: SimulationConfig,
+    equilibration_steps: int = 10000,
+    skip_equilibration: bool = False,
+    overwrite: bool = True,
+    show_progress: bool = True,
+) -> readdy.Trajectory:
+    """Run the full single-replica pipeline and return the trajectory.
+
+    Pipeline: optional equilibration (WCA, no reactions) -> build system ->
+    build simulation -> place particles -> production run. This is the single
+    implementation shared by the ensemble runners and the run_replica.py CLI
+    (previously duplicated in three places).
+
+    Parameters
+    ----------
+    config : SimulationConfig
+        Simulation configuration (its output_file determines where the trajectory goes).
+    equilibration_steps : int
+        Number of equilibration steps (ignored if skip_equilibration=True).
+    skip_equilibration : bool
+        If True, skip equilibration and start from random positions.
+    overwrite : bool
+        Overwrite an existing output file.
+    show_progress : bool
+        Print progress banners for the production run.
+
+    Returns
+    -------
+    readdy.Trajectory
+        Trajectory object for the completed production run.
+    """
+    # Ensure the output directory exists (create_simulation does not create it).
+    output_dir = os.path.dirname(config.output_file)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+
+    if skip_equilibration:
+        pos_qt, pos_ft = None, None
+    else:
+        pos_qt, pos_ft = equilibrate_system(config, n_steps=equilibration_steps)
+
+    system = create_system(config)
+    simulation = create_simulation(system, config, overwrite=overwrite)
+    place_particles(simulation, config, positions_qt=pos_qt, positions_ft=pos_ft)
+    return run_simulation(simulation, config, show_progress=show_progress)

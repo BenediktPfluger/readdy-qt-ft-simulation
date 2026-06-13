@@ -88,37 +88,18 @@ Examples:
     print(f"Particles: {config.n_qt} Qt + {config.n_ft} Ft")
     print(f"Steps: {config.n_steps}")
     
-    # Create output directory if needed
-    output_dir = os.path.dirname(config.output_file)
-    if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
-    
-    # Run equilibration
+    # Run the full single-replica pipeline (output dir, equilibration, build,
+    # place, production) via the shared run_one() entry point.
     if args.skip_equilibration:
         print("\nSkipping equilibration (using random positions)...")
-        pos_qt, pos_ft = None, None
     else:
         print(f"\nRunning equilibration ({args.equilibration_steps} steps)...")
-        try:
-            pos_qt, pos_ft = sim.equilibrate_system(config, n_steps=args.equilibration_steps)
-        except Exception as e:
-            print(f"Error during equilibration: {e}")
-            sys.exit(1)
-    
-    # Create system and simulation
-    print("\nSetting up production simulation...")
     try:
-        system = sim.create_system(config)
-        simulation = sim.create_simulation(system, config)
-        sim.place_particles(simulation, config, positions_qt=pos_qt, positions_ft=pos_ft)
-    except Exception as e:
-        print(f"Error setting up simulation: {e}")
-        sys.exit(1)
-    
-    # Run production
-    print("\nRunning production simulation...")
-    try:
-        sim.run_simulation(simulation, config)
+        sim.run_one(
+            config,
+            equilibration_steps=args.equilibration_steps,
+            skip_equilibration=args.skip_equilibration,
+        )
     except Exception as e:
         print(f"Error during simulation: {e}")
         sys.exit(1)
