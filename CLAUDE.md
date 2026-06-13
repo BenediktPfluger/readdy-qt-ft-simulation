@@ -8,14 +8,18 @@ workflow before making changes.
 
 ## Architecture Rules
 
+- All code lives in the **`qtft`** package; `scripts/` holds thin CLI wrappers
+  (`scripts/run_replica.py`, `scripts/analyze_ensemble.py`).
 - **`SimulationConfig` is the single source of truth.** All parameters live in the config
-  dataclasses in `agglomeration_simulation.py` and are JSON-serializable. Don't hard-code
+  dataclasses in `qtft/config.py` and are JSON-serializable. Don't hard-code
   physical parameters elsewhere — add/extend the config and thread it through.
 - **Keep the layer separation intact:**
-  - `agglomeration_analysis.py` must stay **matplotlib-free** (pure data → numbers/arrays).
-  - `agglomeration_plotting.py` owns all matplotlib/visualization.
-  - `agglomeration_ensemble_simulation.py` orchestrates multi-replica runs; single-run
-    building blocks stay in `agglomeration_simulation.py`.
+  - `qtft/config.py` is the data layer (no ReaDDy); `qtft/system.py` + `qtft/engine.py`
+    build and run simulations.
+  - `qtft/analysis.py` must stay **matplotlib-free** (pure data → numbers/arrays).
+  - `qtft/plotting.py` owns all matplotlib/visualization.
+  - `qtft/ensemble.py` orchestrates multi-replica runs; single-run building blocks stay in
+    `qtft/engine.py`. `qtft/comparison.py` holds cross-ensemble helpers.
 - **Time axis = step numbers, not nanoseconds.** ReaDDy observables return step counts;
   convert with `step × timestep_ns × 1e-3 = µs` (`_steps_to_us` / `NS_TO_US`). Never plot or
   report raw step indices as time.

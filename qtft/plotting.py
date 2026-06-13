@@ -11,14 +11,14 @@ Contents:
     - Ensemble plots (mean ± std bands, final distributions)
 
 Related modules:
-    - agglomeration_simulation.py: Configuration and simulation execution
-    - agglomeration_analysis.py: Core analysis functions (no matplotlib dependency)
-    - agglomeration_ensemble_simulation.py: EnsembleSimulation class for multi-replica runs
+    - qtft.config / qtft.system / qtft.engine: configuration and simulation execution
+    - qtft.analysis: core analysis functions (no matplotlib dependency)
+    - qtft.ensemble: EnsembleSimulation class for multi-replica runs
 
 Usage:
-    import agglomeration_simulation as sim
-    import agglomeration_analysis as analysis
-    import agglomeration_plotting as plotting
+    import qtft
+    import qtft.analysis as analysis
+    import qtft.plotting as plotting
 
     # Single-run plots
     plotting.plot_observables(h5_file, config)

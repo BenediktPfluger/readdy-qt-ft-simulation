@@ -59,14 +59,19 @@ cubic periodic box, `T = 300 K`.
 
 ## 2. Repository layout
 
-| File | Purpose |
-|------|---------|
-| `agglomeration_simulation.py` | Config dataclasses (`SimulationConfig` etc.) + ReaDDy system/simulation builders. Entry points: `create_system`, `create_simulation`, `place_particles`, `run_simulation`, `equilibrate_system`. |
-| `agglomeration_ensemble_simulation.py` | `EnsembleSimulation` class — multi-replica orchestration, local/parallel runs, SLURM script generation, result collection, statistics, save/load. |
-| `agglomeration_analysis.py` | Matplotlib-free trajectory analysis: cluster stats, bond counts, binding kinetics, morphology (Rg), spatial distribution, contacts, composition, size fractions. Also `convert_h5_to_xyz` (OVITO) and `load_ensemble_data`. |
-| `agglomeration_plotting.py` | All matplotlib plots: single-run, ensemble, and cross-ensemble comparison figures. |
-| `analyze_ensemble.py` | CLI to (re)analyze an ensemble directory in parallel; `compare` helpers across ensembles. |
-| `run_replica.py` | CLI to run **one** replica from a config JSON (used locally and by SLURM job arrays). |
+All code lives in the **`qtft`** package; `scripts/` holds thin CLI wrappers.
+
+| Module | Purpose |
+|--------|---------|
+| `qtft.config` | Config dataclasses (`SimulationConfig` etc.), the `format_param_string` naming convention, and the `NS_TO_US`/`_steps_to_us` units helpers. Single source of truth. |
+| `qtft.system` | ReaDDy system builders: `create_system`, species/potentials/topologies. |
+| `qtft.engine` | Build + run: `create_simulation`, `place_particles`, `run_simulation`, `equilibrate_system`, and the one-shot `run_one`. |
+| `qtft.ensemble` | `EnsembleSimulation` class — multi-replica orchestration, local/parallel runs, SLURM script generation, result collection, statistics, save/load. |
+| `qtft.analysis` | Matplotlib-free trajectory analysis: cluster stats, bond counts, binding kinetics, morphology (Rg), spatial distribution, contacts, composition, size fractions. Also `convert_h5_to_xyz` (OVITO) and `load_ensemble_data`. |
+| `qtft.plotting` | All matplotlib plots: single-run, ensemble, and cross-ensemble comparison figures. |
+| `qtft.comparison` | Cross-ensemble comparison helpers (`compare_ensembles`, `save/load_comparison_data`, …). |
+| `scripts/analyze_ensemble.py` | CLI to (re)analyze an ensemble directory in parallel; `compare` subcommand. |
+| `scripts/run_replica.py` | CLI to run **one** replica from a config JSON (used locally and by SLURM job arrays). |
 | `Run_Simulation.ipynb` | Main user notebook: configure → single run + plots → build & run ensemble → XYZ export. |
 | `Plot_Ensemble_Results.ipynb` | Load a finished ensemble, plot results, compare ensembles, export CSV. |
 | `Different_Particle_Ratios/` | Stored ensemble datasets (see §13). |
@@ -91,9 +96,9 @@ cubic periodic box, `T = 300 K`.
 Mirrors the first half of `Run_Simulation.ipynb`:
 
 ```python
-import agglomeration_simulation as sim
-import agglomeration_analysis as analysis
-import agglomeration_plotting as plotting
+import qtft as sim
+import qtft.analysis as analysis
+import qtft.plotting as plotting
 
 # 1. Configure (biological values; see §6)
 config = sim.SimulationConfig(
@@ -137,7 +142,7 @@ config.save_json("simulation_config.json")
 
 ## 5. Configuration reference
 
-`SimulationConfig` (in `agglomeration_simulation.py`) is the single source of truth and is
+`SimulationConfig` (in `qtft.config`) is the single source of truth and is
 fully JSON-serializable (`config.save_json(...)` / `SimulationConfig.load_json(...)`,
 `from_dict` / `to_dict` / `to_flat_dict`).
 
@@ -189,11 +194,11 @@ Setting an ε to `0` disables that interaction entirely.
 
 ## 6. Running ensembles
 
-`EnsembleSimulation` (in `agglomeration_ensemble_simulation.py`) replicates a base config with
+`EnsembleSimulation` (in `qtft.ensemble`) replicates a base config with
 independent RNG seeds, runs the replicas, and aggregates the results.
 
 ```python
-from agglomeration_ensemble_simulation import EnsembleSimulation
+from qtft import EnsembleSimulation
 
 ensemble = EnsembleSimulation(
     base_config=config,
@@ -246,15 +251,16 @@ ensemble.generate_analysis_slurm_script(
 ```
 
 This writes `submit_ensemble.slurm` (a job array; each task runs one replica via
-`run_replica.py --config configs/config_NNN.json`) and `submit_analysis.slurm` (runs
-`analyze_ensemble.py` once all replicas finish). Submit them with `sbatch`.
+`scripts/run_replica.py --config configs/config_NNN.json`) and `submit_analysis.slurm` (runs
+`scripts/analyze_ensemble.py` once all replicas finish). Submit them with `sbatch`. The SLURM
+scripts ship the `qtft/` package and `scripts/` to the cluster (`scp -r qtft scripts ...`).
 
-`run_replica.py` can also be invoked directly:
+`scripts/run_replica.py` can also be invoked directly:
 
 ```bash
-python run_replica.py --config configs/config_000.json
-python run_replica.py --config configs/config_000.json --equilibration-steps 20000
-python run_replica.py --config configs/config_000.json --skip-equilibration
+python scripts/run_replica.py --config configs/config_000.json
+python scripts/run_replica.py --config configs/config_000.json --equilibration-steps 20000
+python scripts/run_replica.py --config configs/config_000.json --skip-equilibration
 ```
 
 ---
@@ -264,12 +270,12 @@ python run_replica.py --config configs/config_000.json --skip-equilibration
 Re-analyze (or analyze for the first time) an ensemble directory in parallel:
 
 ```bash
-python analyze_ensemble.py --ensemble-dir <ensemble_dir> --parallel --n-workers 4 --stride 10
+python scripts/analyze_ensemble.py --ensemble-dir <ensemble_dir> --parallel --n-workers 4 --stride 10
 ```
 
 This (re)writes `ensemble_statistics.json` and `ensemble_structural.npz`.
 
-**Metrics computed** (`agglomeration_analysis.py`):
+**Metrics computed** (`qtft.analysis`):
 - **Kinetics:** bond counts over time, binding rate, free vs clustered Qt/Ft, fraction bound, half-times.
 - **Cluster stats:** number of clusters, size distribution, average & largest cluster size, adaptive size-category fractions (monomers / small / medium / large / very large).
 - **Morphology:** radius of gyration Rg per cluster and normalized compactness (Rg/Rg_ideal).
@@ -297,7 +303,7 @@ Load aggregated results for plotting with
 
 ## 9. Plotting
 
-Driven from `Plot_Ensemble_Results.ipynb`; all functions live in `agglomeration_plotting.py`.
+Driven from `Plot_Ensemble_Results.ipynb`; all functions live in `qtft.plotting`.
 
 **Single run:** `plot_observables`, `plot_cluster_analysis`, `plot_structural_cluster_analysis`,
 `plot_cluster_composition`.
@@ -306,7 +312,7 @@ Driven from `Plot_Ensemble_Results.ipynb`; all functions live in `agglomeration_
 `plot_ensemble_size_categories` (all support `show_individual=True` to overlay replica traces).
 
 **Cross-ensemble comparison:** build a comparison with
-`ae.compare_ensembles({label: dir, ...})` (from `analyze_ensemble.py`, imported as `ae`), then:
+`ae.compare_ensembles({label: dir, ...})` (from `qtft.comparison`, imported as `ae`), then:
 `plot_comparison_summary`, `plot_comparison_final_state`, `plot_comparison_structural`,
 `plot_comparison_size_categories`. Inspect differing parameters with
 `ae.print_parameter_differences(comparison)` and persist with `ae.save_comparison_data(...)`.

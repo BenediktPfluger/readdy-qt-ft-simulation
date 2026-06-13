@@ -11,15 +11,15 @@ Contents:
     - Ensemble data loading (JSON/NPZ files)
 
 Related modules:
-    - agglomeration_simulation.py: Configuration and simulation execution
-    - agglomeration_plotting.py: All plotting and visualization (requires matplotlib)
-    - agglomeration_ensemble_simulation.py: EnsembleSimulation class for multi-replica runs
+    - qtft.config / qtft.system / qtft.engine: configuration and simulation execution
+    - qtft.plotting: all plotting and visualization (requires matplotlib)
+    - qtft.ensemble: EnsembleSimulation class for multi-replica runs
 
 This module has NO matplotlib dependency and can be used on headless servers.
 
 Usage:
-    import agglomeration_simulation as sim
-    import agglomeration_analysis as analysis
+    import qtft
+    import qtft.analysis as analysis
 
     # Analyze results
     cluster_stats = analysis.get_cluster_statistics(h5_file)
