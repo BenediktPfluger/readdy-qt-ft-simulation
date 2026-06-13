@@ -1,0 +1,43 @@
+# =============================================================================
+# Simulation data — NEVER commit (tens of GB; GitHub caps files at 100 MB)
+# =============================================================================
+# Whole ensemble/data tree
+Different_Particle_Ratios/
+
+# Trajectories and exports (large)
+*.h5
+*.xyz
+
+# Aggregated ensemble outputs (can be tens-to-hundreds of MB)
+*.npz
+ensemble_state.json
+ensemble_statistics.json
+ensemble_structural.npz
+
+# Generated figures (regenerate from data)
+*.svg
+*.png
+*.pdf
+
+# Per-replica config dumps live with the data
+configs/
+logs/
+replica_*/
+
+# =============================================================================
+# Python
+# =============================================================================
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+.venv/
+env/
+venv/
+
+# =============================================================================
+# OS / editor
+# =============================================================================
+.DS_Store
+.vscode/
+.idea/
