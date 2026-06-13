@@ -9,19 +9,19 @@ Contents:
     - _run_replica_worker() helper for multiprocessing
 
 Related modules:
-    - agglomeration_simulation.py: Configuration and simulation execution
-    - agglomeration_analysis.py: Core analysis functions (no matplotlib dependency)
-    - agglomeration_plotting.py: All plotting and visualization
+    - qtft.config / qtft.system / qtft.engine: configuration and simulation execution
+    - qtft.analysis: core analysis functions (no matplotlib dependency)
+    - qtft.plotting: all plotting and visualization
 
 This module has NO matplotlib dependency. For plotting ensemble results,
-use agglomeration_plotting.plot_ensemble_observables() and related functions.
+use qtft.plotting.plot_ensemble_observables() and related functions.
 
 Usage:
-    import agglomeration_simulation as sim
-    import agglomeration_plotting as plotting
-    from agglomeration_ensemble_simulation import EnsembleSimulation
+    import qtft
+    import qtft.plotting as plotting
+    from qtft import EnsembleSimulation
 
-    config = sim.SimulationConfig(...)
+    config = qtft.SimulationConfig(...)
     ensemble = EnsembleSimulation(config, n_replicas=10)
 
     # Run locally
@@ -472,7 +472,7 @@ class EnsembleSimulation:
             Name of conda environment with ReaDDy
         scripts_dir : str
             Directory on cluster where Python scripts are located
-            (agglomeration_simulation.py, run_replica.py, etc.)
+            (the qtft package and scripts/run_replica.py)
         cluster : str, optional
             SLURM cluster name. If None, --clusters line is omitted.
         qos : str, optional
@@ -539,7 +539,7 @@ echo "Ensemble: {self.folder_name}"
 echo "Time: $(date)"
 echo ""
 
-python run_replica.py --config {ensemble_path}/configs/config_${{REPLICA_IDX}}.json
+python scripts/run_replica.py --config {ensemble_path}/configs/config_${{REPLICA_IDX}}.json
 
 echo ""
 echo "Replica $SLURM_ARRAY_TASK_ID completed at $(date)"
@@ -553,17 +553,16 @@ echo "Replica $SLURM_ARRAY_TASK_ID completed at $(date)"
         print(f"✓ Saved {self.n_replicas} config files to {self.output_dir}configs/")
         print(f"\nFolder structure on cluster:")
         print(f"  {scripts_dir}/")
-        print(f"  ├── agglomeration_simulation.py")
-        print(f"  ├── agglomeration_analysis.py")
-        print(f"  ├── run_replica.py")
-        print(f"  ├── analyze_ensemble.py")
+        print(f"  ├── qtft/                  (package)")
+        print(f"  ├── scripts/run_replica.py")
+        print(f"  ├── scripts/analyze_ensemble.py")
         print(f"  └── {self.folder_name}/")
         print(f"      ├── configs/")
         print(f"      ├── logs/")
         print(f"      ├── replica_000/")
         print(f"      └── ...")
         print(f"\nTo run on cluster:")
-        print(f"  1. Upload scripts (once):     scp agglomeration_simulation.py agglomeration_analysis.py run_replica.py analyze_ensemble.py user@cluster:{scripts_dir}/")
+        print(f"  1. Upload code (once):        scp -r qtft scripts user@cluster:{scripts_dir}/")
         print(f"  2. Upload ensemble folder:    scp -r {self.output_dir} user@cluster:{scripts_dir}/")
         print(f"  3. Submit job:                sbatch {ensemble_path}/submit_ensemble.slurm")
     
@@ -604,7 +603,7 @@ echo "Replica $SLURM_ARRAY_TASK_ID completed at $(date)"
             Name of conda environment with ReaDDy
         scripts_dir : str
             Directory on cluster where Python scripts are located
-            (agglomeration_simulation.py, analyze_ensemble.py, etc.)
+            (the qtft package and scripts/analyze_ensemble.py)
         stride : int
             Stride for structural analysis (analyze every Nth frame)
         cluster : str, optional
@@ -669,7 +668,7 @@ echo "Time: $(date)"
 echo "CPUs available: {cpus_per_task}"
 echo ""
 
-python analyze_ensemble.py --ensemble-dir {ensemble_path}/ --stride {stride} {parallel_flag} {n_workers_flag}
+python scripts/analyze_ensemble.py --ensemble-dir {ensemble_path}/ --stride {stride} {parallel_flag} {n_workers_flag}
 
 echo ""
 echo "Analysis completed at $(date)"

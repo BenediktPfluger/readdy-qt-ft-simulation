@@ -41,10 +41,10 @@ sys.path.insert(0, REPO_ROOT)
 import matplotlib
 matplotlib.use("Agg")
 
-import agglomeration_simulation as sim
-import agglomeration_analysis as analysis
-import agglomeration_plotting as plotting
-from agglomeration_ensemble_simulation import EnsembleSimulation
+import qtft as sim
+import qtft.analysis as analysis
+import qtft.plotting as plotting
+from qtft import EnsembleSimulation
 
 OUT = os.path.join(REPO_ROOT, "tools", "smoke_out")
 
