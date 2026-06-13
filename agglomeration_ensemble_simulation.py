@@ -49,6 +49,7 @@ import readdy
 from agglomeration_simulation import (
     SimulationConfig,
     NS_TO_US,
+    format_param_string,
     create_system,
     create_simulation,
     place_particles,
@@ -244,58 +245,18 @@ class EnsembleSimulation:
     
     def _generate_folder_name(self) -> str:
         """Generate folder name from simulation parameters.
-        
-        Format: {name}_{n_qt}Qt_{n_ft}Ft_{potential_type}_eQQ{e}_eFF{e}_eQF{e}_kon{kon}_{timestep}_{total_time}
-        
+
+        Uses the shared `format_param_string()` convention (identical to the single-run
+        trajectory filename, minus the .h5 suffix), optionally prefixed with `self.name`.
+
         Examples:
             200Qt_400Ft_WCA_eQQ10_eFF10_eQF10_kon10_dt10ps_30us
             highFt_200Qt_800Ft_LJ_eQQ10_eFF10_eQF5_kon5.5_dt10ps_30us
         """
-        config = self.base_config
-        
-        # Extract parameters
-        n_qt = config.n_qt
-        n_ft = config.n_ft
-        
-        # Potential type
-        potential = config.lj.potential_type
-        
-        # Epsilon values: format without trailing zeros
-        def fmt_eps(val):
-            return f"{int(val)}" if val == int(val) else f"{val}"
-        
-        eqq = f"eQQ{fmt_eps(config.lj.epsilon_QtQt)}"
-        eff = f"eFF{fmt_eps(config.lj.epsilon_FtFt)}"
-        eqf = f"eQF{fmt_eps(config.lj.epsilon_QtFt)}"
-        
-        # kon: format without trailing zeros
-        kon_val = config.topology.kon
-        if kon_val == int(kon_val):
-            kon_str = f"kon{int(kon_val)}"
-        else:
-            kon_str = f"kon{kon_val}"
-        
-        # Timestep in picoseconds (config.timestep is in nanoseconds)
-        dt_ps = config.timestep * 1000  # ns -> ps
-        if dt_ps >= 1:
-            dt_str = f"dt{dt_ps:.0f}ps"
-        else:
-            dt_str = f"dt{dt_ps:.2f}ps"
-        
-        # Total time in microseconds
-        total_time_us = config.total_simulation_time_us
-        if total_time_us >= 1:
-            time_str = f"{total_time_us:.0f}us"
-        else:
-            time_str = f"{total_time_us:.2f}us"
-        
-        # Build folder name
-        params_part = f"{n_qt}Qt_{n_ft}Ft_{potential}_{eqq}_{eff}_{eqf}_{kon_str}_{dt_str}_{time_str}"
-        
+        params_part = format_param_string(self.base_config)
         if self.name:
             return f"{self.name}_{params_part}"
-        else:
-            return params_part
+        return params_part
     
     def _create_replica_config(self, replica_idx: int, seed: int) -> SimulationConfig:
         """Create a config for a single replica with modified seed and output path."""

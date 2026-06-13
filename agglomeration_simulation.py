@@ -449,48 +449,17 @@ class SimulationConfig:
     def _generate_output_filename(self) -> str:
         """
         Generate descriptive output filename from simulation parameters.
-        
-        Format: qt_ft_{n_qt}Qt_{n_ft}Ft_{potential_type}_eQQ{e}_eFF{e}_eQF{e}_kon{kon}_{timestep}_{total_time}.h5
-        
+
+        Uses the shared `format_param_string()` convention (same string used for
+        ensemble folder names) plus a `.h5` suffix:
+
+            {n_qt}Qt_{n_ft}Ft_{potential_type}_eQQ{e}_eFF{e}_eQF{e}_kon{kon}_dt{dt}ps_{total_time}us.h5
+
         Examples:
-            qt_ft_200Qt_200Ft_WCA_eQQ10_eFF10_eQF10_kon10_dt0.10ps_20us.h5
-            qt_ft_200Qt_400Ft_LJ_eQQ10_eFF10_eQF5_kon5.5_dt10ps_30us.h5
+            200Qt_200Ft_WCA_eQQ10_eFF10_eQF10_kon10_dt0.10ps_20us.h5
+            200Qt_400Ft_LJ_eQQ10_eFF10_eQF5_kon5.5_dt10ps_30us.h5
         """
-        # Timestep in picoseconds
-        dt_ps = self.timestep * 1000  # ns -> ps
-        if dt_ps >= 1:
-            dt_str = f"dt{dt_ps:.0f}ps"
-        else:
-            dt_str = f"dt{dt_ps:.2f}ps"
-        
-        # Total time in microseconds
-        total_time_us = self.total_simulation_time_us
-        if total_time_us >= 1:
-            time_str = f"{total_time_us:.0f}us"
-        else:
-            time_str = f"{total_time_us:.2f}us"
-        
-        # kon: format without trailing zeros
-        kon_val = self.topology.kon
-        if kon_val == int(kon_val):
-            kon_str = f"kon{int(kon_val)}"
-        else:
-            kon_str = f"kon{kon_val}"
-        
-        # Epsilon values: format without trailing zeros
-        def fmt_eps(val):
-            return f"{int(val)}" if val == int(val) else f"{val}"
-        
-        eqq = f"eQQ{fmt_eps(self.lj.epsilon_QtQt)}"
-        eff = f"eFF{fmt_eps(self.lj.epsilon_FtFt)}"
-        eqf = f"eQF{fmt_eps(self.lj.epsilon_QtFt)}"
-        
-        potential = self.lj.potential_type
-        
-        return (
-            f"qt_ft_{self.n_qt}Qt_{self.n_ft}Ft_"
-            f"{potential}_{eqq}_{eff}_{eqf}_{kon_str}_{dt_str}_{time_str}.h5"
-        )
+        return f"{format_param_string(self)}.h5"
     
     def _validate(self) -> List[str]:
         """Validate configuration and return list of warnings."""
@@ -971,6 +940,46 @@ class SimulationConfig:
         
         print(f"✓ Configuration loaded from {filepath}")
         return config
+
+
+# =============================================================================
+# PARAMETER-STRING NAMING
+# =============================================================================
+
+def format_param_string(config: "SimulationConfig") -> str:
+    """Canonical parameter string for auto filenames and ensemble folder names.
+
+    Single source of truth for the naming convention so the single-run trajectory
+    filename and the ensemble folder name can never drift apart.
+
+    Format::
+
+        {n_qt}Qt_{n_ft}Ft_{potential_type}_eQQ{e}_eFF{e}_eQF{e}_kon{kon}_dt{dt}ps_{total_time}us
+
+    Numbers are formatted without trailing zeros (e.g. kon10, eQQ2.5, dt20ps, 100us).
+    """
+    lj = config.lj
+
+    def fmt_eps(val):
+        return f"{int(val)}" if val == int(val) else f"{val}"
+
+    eqq = f"eQQ{fmt_eps(lj.epsilon_QtQt)}"
+    eff = f"eFF{fmt_eps(lj.epsilon_FtFt)}"
+    eqf = f"eQF{fmt_eps(lj.epsilon_QtFt)}"
+
+    kon_val = config.topology.kon
+    kon_str = f"kon{int(kon_val)}" if kon_val == int(kon_val) else f"kon{kon_val}"
+
+    dt_ps = config.timestep * 1000  # ns -> ps
+    dt_str = f"dt{dt_ps:.0f}ps" if dt_ps >= 1 else f"dt{dt_ps:.2f}ps"
+
+    total_us = config.total_simulation_time_us
+    time_str = f"{total_us:.0f}us" if total_us >= 1 else f"{total_us:.2f}us"
+
+    return (
+        f"{config.n_qt}Qt_{config.n_ft}Ft_"
+        f"{lj.potential_type}_{eqq}_{eff}_{eqf}_{kon_str}_{dt_str}_{time_str}"
+    )
 
 
 # =============================================================================
