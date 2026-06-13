@@ -116,6 +116,53 @@ def _run_replica_worker(output_dir: str, config_path: str, equilibration_steps: 
         return {'idx': replica_idx, 'success': False, 'error': str(e)}
 
 
+def _compute_replica_structural(h5_file: str, config: SimulationConfig, stride: int) -> Dict:
+    """Compute morphology/spatial/contacts/composition for one replica.
+
+    Shared by the sequential and parallel structural-analysis paths so both produce
+    identical per-replica results. Extracts frame data once and reuses it.
+
+    Returns
+    -------
+    dict with keys 'morphology', 'spatial', 'contacts', 'composition' (each a result
+    dict or None) and 'errors' (list of strings).
+    """
+    result = {'morphology': None, 'spatial': None, 'contacts': None,
+              'composition': None, 'errors': []}
+    try:
+        frame_data = _extract_frame_data(h5_file, config, stride=stride, verbose=False)
+    except Exception as e:
+        result['errors'].append(f"frame_data: {e}")
+        return result
+
+    for key, fn in (
+        ('morphology', get_cluster_morphology),
+        ('spatial', get_spatial_distribution),
+        ('contacts', get_contact_analysis),
+        ('composition', get_cluster_composition),
+    ):
+        try:
+            result[key] = fn(h5_file, config, stride=stride, frame_data=frame_data)
+        except Exception as e:
+            result['errors'].append(f"{key}: {e}")
+    return result
+
+
+def _analyze_replica_structural_worker(args) -> Dict:
+    """Picklable wrapper around _compute_replica_structural for multiprocessing.
+
+    Parameters
+    ----------
+    args : tuple
+        (replica_idx, h5_file, config_dict, stride)
+    """
+    replica_idx, h5_file, config_dict, stride = args
+    config = SimulationConfig.from_dict(config_dict)
+    result = _compute_replica_structural(h5_file, config, stride)
+    result['replica_idx'] = replica_idx
+    return result
+
+
 
 class EnsembleSimulation:
     """
@@ -1129,89 +1176,86 @@ echo "Analysis completed at $(date)"
         
         return stats, structural, config
     
-    def compute_structural_statistics(self, stride: int = 10):
+    def compute_structural_statistics(
+        self,
+        stride: int = 10,
+        parallel: bool = False,
+        n_workers: Optional[int] = None,
+    ):
         """
         Compute structural statistics (morphology, spatial, contacts, composition).
-        
+
         This is computationally expensive as it processes trajectory frames.
         Must be called before plot_structural().
-        
+
         Parameters
         ----------
         stride : int
             Analyze every Nth frame (default: 10)
+        parallel : bool
+            If True, analyze replicas concurrently with a process pool. Produces
+            identical results to the sequential path (same per-replica worker).
+        n_workers : int, optional
+            Number of worker processes when parallel=True. Defaults to
+            min(n_available, cpu_count()).
         """
         if not self.results_collected:
             raise RuntimeError("Must call collect_results() before compute_structural_statistics()")
-        
+
         print("\n" + "=" * 60)
         print("COMPUTING ADVANCED STATISTICS")
         print("=" * 60)
         print(f"Using stride={stride} (analyzing every {stride}th frame)")
-        
-        # Storage for structural data
-        morphology_data = []
-        spatial_data = []
-        contacts_data = []
-        composition_data = []
-        
+
         available = self.replica_data['available_replicas']
         n_available = len(available)
-        
-        for idx, i in enumerate(available):
-            config = self.replica_configs[i]
-            h5_file = config.output_file
-            
-            print(f"\n  Replica {i} ({idx+1}/{n_available}):")
-            
-            # Extract frame data ONCE and share between all analysis functions
-            try:
-                frame_data = _extract_frame_data(h5_file, config, stride=stride, verbose=False)
-                print(f"    ✓ Frame data: {frame_data['n_frames']} frames extracted")
-            except Exception as e:
-                print(f"    ✗ Frame data extraction failed: {e}")
-                morphology_data.append(None)
-                spatial_data.append(None)
-                contacts_data.append(None)
-                composition_data.append(None)
-                continue
-            
-            # Morphology
-            try:
-                morph = get_cluster_morphology(h5_file, config, stride=stride, frame_data=frame_data)
-                morphology_data.append(morph)
-                print(f"    ✓ Morphology")
-            except Exception as e:
-                print(f"    ✗ Morphology failed: {e}")
-                morphology_data.append(None)
-            
-            # Spatial
-            try:
-                spatial = get_spatial_distribution(h5_file, config, stride=stride, frame_data=frame_data)
-                spatial_data.append(spatial)
-                print(f"    ✓ Spatial")
-            except Exception as e:
-                print(f"    ✗ Spatial failed: {e}")
-                spatial_data.append(None)
-            
-            # Contacts
-            try:
-                contacts = get_contact_analysis(h5_file, config, stride=stride, frame_data=frame_data)
-                contacts_data.append(contacts)
-                print(f"    ✓ Contacts")
-            except Exception as e:
-                print(f"    ✗ Contacts failed: {e}")
-                contacts_data.append(None)
-            
-            # Composition
-            try:
-                composition = get_cluster_composition(h5_file, config, stride=stride, frame_data=frame_data)
-                composition_data.append(composition)
-                print(f"    ✓ Composition")
-            except Exception as e:
-                print(f"    ✗ Composition failed: {e}")
-                composition_data.append(None)
-        
+
+        # Per-replica results, kept in the same order as `available` so downstream
+        # processing is identical regardless of sequential vs parallel execution.
+        morphology_data = [None] * n_available
+        spatial_data = [None] * n_available
+        contacts_data = [None] * n_available
+        composition_data = [None] * n_available
+
+        def _store(pos: int, res: Dict):
+            morphology_data[pos] = res['morphology']
+            spatial_data[pos] = res['spatial']
+            contacts_data[pos] = res['contacts']
+            composition_data[pos] = res['composition']
+
+        if parallel and n_available > 1:
+            from concurrent.futures import ProcessPoolExecutor, as_completed
+            from multiprocessing import cpu_count
+            if n_workers is None:
+                n_workers = min(n_available, cpu_count())
+            n_workers = min(n_workers, n_available)
+            print(f"Running structural analysis on {n_workers} workers...")
+
+            task_args = [
+                (i, self.replica_configs[i].output_file,
+                 self.replica_configs[i].to_dict(), stride)
+                for i in available
+            ]
+            with ProcessPoolExecutor(max_workers=n_workers) as executor:
+                futures = {executor.submit(_analyze_replica_structural_worker, arg): pos
+                           for pos, arg in enumerate(task_args)}
+                for future in as_completed(futures):
+                    pos = futures[future]
+                    res = future.result()
+                    _store(pos, res)
+                    tag = "with errors: " + "; ".join(res['errors']) if res['errors'] else "✓"
+                    print(f"  Replica {available[pos]}: {tag}")
+        else:
+            for pos, i in enumerate(available):
+                config = self.replica_configs[i]
+                print(f"\n  Replica {i} ({pos + 1}/{n_available}):")
+                res = _compute_replica_structural(config.output_file, config, stride)
+                _store(pos, res)
+                for err in res['errors']:
+                    print(f"    ✗ {err}")
+                if not res['errors']:
+                    print(f"    ✓ morphology / spatial / contacts / composition")
+
         print("\nProcessing structural data...")
         
         # Process into ensemble statistics
@@ -1521,7 +1565,7 @@ echo "Analysis completed at $(date)"
             npz_data['final_avg_cluster_values'] = self.statistics['avg_cluster_all'][:, -1]
         
         structural_path = f"{save_dir}ensemble_structural.npz"
-        np.savez(structural_path, **npz_data)
+        np.savez_compressed(structural_path, **npz_data)
         print(f"✓ Saved structural data to {structural_path}")
         
         # === Save ensemble_state.json (for EnsembleSimulation.load()) ===

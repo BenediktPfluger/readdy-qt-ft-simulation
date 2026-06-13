@@ -23,526 +23,76 @@ import argparse
 import json
 import os
 import sys
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from multiprocessing import cpu_count
 
 import numpy as np
 
-# Import the analysis module
-import agglomeration_analysis as analysis
 from agglomeration_ensemble_simulation import EnsembleSimulation
 from agglomeration_simulation import NS_TO_US
-
-
-def analyze_single_replica(args):
-    """
-    Analyze a single replica (for parallel processing).
-    
-    Parameters
-    ----------
-    args : tuple
-        (replica_index, h5_file, config_dict, stride)
-    
-    Returns
-    -------
-    dict
-        Results containing morphology, spatial, contacts, and composition data
-    """
-    replica_idx, h5_file, config_dict, stride = args
-    
-    # Reconstruct config from dict
-    config = analysis.SimulationConfig.from_dict(config_dict)
-    
-    result = {
-        'replica_idx': replica_idx,
-        'morphology': None,
-        'spatial': None,
-        'contacts': None,
-        'composition': None,
-        'errors': []
-    }
-    
-    # Extract frame data ONCE and share between all analysis functions
-    try:
-        frame_data = analysis._extract_frame_data(h5_file, config, stride=stride, verbose=False)
-    except Exception as e:
-        result['errors'].append(f"Frame data extraction: {e}")
-        return result
-    
-    # Morphology
-    try:
-        morph = analysis.get_cluster_morphology(h5_file, config, stride=stride, frame_data=frame_data)
-        result['morphology'] = morph
-    except Exception as e:
-        result['errors'].append(f"Morphology: {e}")
-    
-    # Spatial
-    try:
-        spatial = analysis.get_spatial_distribution(h5_file, config, stride=stride, frame_data=frame_data)
-        result['spatial'] = spatial
-    except Exception as e:
-        result['errors'].append(f"Spatial: {e}")
-    
-    # Contacts
-    try:
-        contacts = analysis.get_contact_analysis(h5_file, config, stride=stride, frame_data=frame_data)
-        result['contacts'] = contacts
-    except Exception as e:
-        result['errors'].append(f"Contacts: {e}")
-    
-    # Composition
-    try:
-        composition = analysis.get_cluster_composition(h5_file, config, stride=stride, frame_data=frame_data)
-        result['composition'] = composition
-    except Exception as e:
-        result['errors'].append(f"Composition: {e}")
-    
-    return result
 
 
 def main():
     parser = argparse.ArgumentParser(
         description="Analyze ensemble simulation results and save to JSON/NPZ"
     )
-    parser.add_argument(
-        "--ensemble-dir",
-        required=True,
-        help="Path to ensemble output directory"
-    )
-    parser.add_argument(
-        "--stride",
-        type=int,
-        default=10,
-        help="Stride for structural analysis (default: 10)"
-    )
-    parser.add_argument(
-        "--parallel",
-        action="store_true",
-        help="Enable parallel processing for structural analysis"
-    )
-    parser.add_argument(
-        "--n-workers",
-        type=int,
-        default=None,
-        help="Number of parallel workers (default: min(n_replicas, cpu_count))"
-    )
-    
+    parser.add_argument("--ensemble-dir", required=True,
+                        help="Path to ensemble output directory")
+    parser.add_argument("--stride", type=int, default=10,
+                        help="Stride for structural analysis (default: 10)")
+    parser.add_argument("--parallel", action="store_true",
+                        help="Enable parallel processing for structural analysis")
+    parser.add_argument("--n-workers", type=int, default=None,
+                        help="Number of parallel workers (default: min(n_replicas, cpu_count))")
     args = parser.parse_args()
-    
+
     ensemble_dir = args.ensemble_dir.rstrip("/") + "/"
-    
+
     print("=" * 60)
     print("ENSEMBLE ANALYSIS")
     print("=" * 60)
     print(f"Ensemble directory: {ensemble_dir}")
     print(f"Structural analysis stride: {args.stride}")
     if args.parallel:
-        print(f"Parallel processing: ENABLED")
+        print("Parallel processing: ENABLED")
     print()
-    
-    # Load ensemble from config files
-    print("Loading ensemble configuration...")
+
+    # Drive the shared EnsembleSimulation pipeline so this CLI and a local
+    # run_local() produce byte-identical ensemble_statistics.json /
+    # ensemble_structural.npz. save_for_plotting() is the single source of truth
+    # for the on-disk schema (no duplicated aggregation/writer logic here).
     ensemble = EnsembleSimulation.load(ensemble_dir)
-    
-    # Collect basic results
-    print("\n" + "-" * 60)
-    print("COLLECTING BASIC RESULTS")
-    print("-" * 60)
     ensemble.collect_results(require_all=False)
-    
-    # Compute statistics
-    print("\n" + "-" * 60)
-    print("COMPUTING STATISTICS")
-    print("-" * 60)
     ensemble.compute_statistics()
-    
-    # Compute summary metrics
     ensemble.compute_summary_metrics()
-    
-    # Prepare basic statistics for JSON
-    print("\n" + "-" * 60)
-    print("SAVING BASIC STATISTICS")
-    print("-" * 60)
-    
-    stats_json = {
-        'n_replicas': ensemble.statistics['n_replicas'],
-        'available_replicas': ensemble.replica_data['available_replicas'],
-        'times': ensemble.statistics['times'].tolist(),
-    }
-    
-    # Add time series statistics
-    time_series_keys = [
-        'bonds', 'energy', 'pressure', 'n_clusters', 'largest_cluster', 'fraction_bound',
-        'avg_cluster', 'cumulative_reactions',
-        'qt_count', 'ft_count', 'qtc_count', 'ftc_count', 'total_count'
-    ]
-    
-    for key in time_series_keys:
-        mean_key = f'{key}_mean'
-        std_key = f'{key}_std'
-        if mean_key in ensemble.statistics:
-            stats_json[mean_key] = ensemble.statistics[mean_key].tolist()
-            stats_json[std_key] = ensemble.statistics[std_key].tolist()
-    
-    # Add summary metrics
-    if ensemble.summary_metrics:
-        # Convert numpy types to native Python types for JSON serialization
-        def convert_numpy(obj):
-            if isinstance(obj, dict):
-                return {k: convert_numpy(v) for k, v in obj.items()}
-            elif isinstance(obj, (np.integer, np.floating)):
-                return float(obj) if isinstance(obj, np.floating) else int(obj)
-            elif isinstance(obj, np.ndarray):
-                return obj.tolist()
-            return obj
-        stats_json['summary'] = convert_numpy(ensemble.summary_metrics)
-    
-    # Save basic statistics JSON
-    stats_path = f"{ensemble_dir}ensemble_statistics.json"
-    with open(stats_path, 'w') as f:
-        json.dump(stats_json, f, indent=2)
-    print(f"✓ Saved basic statistics to {stats_path}")
-    
-    # Save config JSON
-    config_path = f"{ensemble_dir}ensemble_config.json"
-    with open(config_path, 'w') as f:
-        json.dump(ensemble.base_config.to_dict(), f, indent=2)
-    print(f"✓ Saved configuration to {config_path}")
-    
-    # Prepare arrays for NPZ (including individual traces)
-    npz_data = {
-        'times': ensemble.statistics['times'],
-        'n_replicas': np.array([ensemble.statistics['n_replicas']]),
-        'available_replicas': np.array(ensemble.replica_data['available_replicas']),
-    }
-    
-    # Add all time series data with individual traces
-    for key in time_series_keys:
-        mean_key = f'{key}_mean'
-        std_key = f'{key}_std'
-        all_key = f'{key}_all'
-        if mean_key in ensemble.statistics:
-            npz_data[mean_key] = ensemble.statistics[mean_key]
-            npz_data[std_key] = ensemble.statistics[std_key]
-        if all_key in ensemble.statistics:
-            npz_data[all_key] = ensemble.statistics[all_key]
-    
-    # Structural analysis
-    print("\n" + "-" * 60)
-    print("COMPUTING STRUCTURAL ANALYSIS")
-    print("-" * 60)
-    
-    available_replicas = ensemble.replica_data['available_replicas']
-    n_available = len(available_replicas)
-    
-    if n_available == 0:
-        print("No replicas available for structural analysis")
-    elif args.parallel and n_available > 1:
-        # Parallel processing
-        n_workers = args.n_workers
-        if n_workers is None:
-            n_workers = min(n_available, cpu_count())
-        n_workers = min(n_workers, n_available)
-        
-        print(f"Running parallel analysis with {n_workers} workers...")
-        
-        # Prepare arguments
-        task_args = []
-        for i in available_replicas:
-            config = ensemble.replica_configs[i]
-            h5_file = config.output_file
-            task_args.append((i, h5_file, config.to_dict(), args.stride))
-        
-        # Run in parallel
-        morphology_data = [None] * n_available
-        spatial_data = [None] * n_available
-        contacts_data = [None] * n_available
-        composition_data = [None] * n_available
-        
-        with ProcessPoolExecutor(max_workers=n_workers) as executor:
-            # Map futures back to their position in results arrays.
-            # task_idx = position in task_args (0..n_available-1), used for array indexing
-            # result['replica_idx'] = original replica number, used for logging
-            futures = {executor.submit(analyze_single_replica, arg): task_idx 
-                      for task_idx, arg in enumerate(task_args)}
-            
-            for future in as_completed(futures):
-                task_idx = futures[future]
-                try:
-                    result = future.result()
-                    replica_idx = result['replica_idx']
-                    morphology_data[task_idx] = result['morphology']
-                    spatial_data[task_idx] = result['spatial']
-                    contacts_data[task_idx] = result['contacts']
-                    composition_data[task_idx] = result['composition']
-                    
-                    if result['errors']:
-                        print(f"  Replica {replica_idx}: Completed with errors: {result['errors']}")
-                    else:
-                        print(f"  Replica {replica_idx}: ✓ Complete")
-                except Exception as e:
-                    print(f"  Task {task_idx}: FAILED - {e}")
-    else:
-        # Sequential processing
-        if args.parallel:
-            print("Only 1 replica available, using sequential processing")
-        
-        morphology_data = []
-        spatial_data = []
-        contacts_data = []
-        composition_data = []
-        
-        for idx, i in enumerate(available_replicas):
-            config = ensemble.replica_configs[i]
-            h5_file = config.output_file
-            
-            print(f"  Replica {i} ({idx+1}/{n_available}): Analyzing...")
-            
-            # Extract frame data ONCE and share between all analysis functions
-            try:
-                frame_data = analysis._extract_frame_data(h5_file, config, stride=args.stride, verbose=False)
-                print(f"    ✓ Frame data: {frame_data['n_frames']} frames extracted")
-            except Exception as e:
-                print(f"    ✗ Frame data extraction failed: {e}")
-                morphology_data.append(None)
-                spatial_data.append(None)
-                contacts_data.append(None)
-                composition_data.append(None)
-                continue
-            
-            # Morphology
-            try:
-                morph = analysis.get_cluster_morphology(h5_file, config, stride=args.stride, frame_data=frame_data)
-                morphology_data.append(morph)
-                print(f"    ✓ Morphology")
-            except Exception as e:
-                print(f"    ✗ Morphology failed: {e}")
-                morphology_data.append(None)
-            
-            # Spatial
-            try:
-                spatial = analysis.get_spatial_distribution(h5_file, config, stride=args.stride, frame_data=frame_data)
-                spatial_data.append(spatial)
-                print(f"    ✓ Spatial")
-            except Exception as e:
-                print(f"    ✗ Spatial failed: {e}")
-                spatial_data.append(None)
-            
-            # Contacts
-            try:
-                contacts = analysis.get_contact_analysis(h5_file, config, stride=args.stride, frame_data=frame_data)
-                contacts_data.append(contacts)
-                print(f"    ✓ Contacts")
-            except Exception as e:
-                print(f"    ✗ Contacts failed: {e}")
-                contacts_data.append(None)
-            
-            # Composition
-            try:
-                composition = analysis.get_cluster_composition(h5_file, config, stride=args.stride, frame_data=frame_data)
-                composition_data.append(composition)
-                print(f"    ✓ Composition")
-            except Exception as e:
-                print(f"    ✗ Composition failed: {e}")
-                composition_data.append(None)
-    
-    # Process structural data into arrays
-    print("\nProcessing structural data...")
-    
-    def process_structural_data(data_list, keys):
-        """Process list of dicts into mean/std/all arrays."""
-        valid_data = [d for d in data_list if d is not None]
-        if not valid_data:
-            return {}
-        
-        result = {}
-        
-        # Get common time grid (shortest)
-        all_times = [d['times'] for d in valid_data]
-        min_len = min(len(t) for t in all_times)
-        result['times'] = valid_data[0]['times'][:min_len]
-        
-        for key in keys:
-            if key not in valid_data[0]:
-                continue
-                
-            all_values = []
-            for d in valid_data:
-                if key in d:
-                    vals = d[key][:min_len] if len(d[key]) >= min_len else d[key]
-                    if len(vals) == min_len:
-                        all_values.append(vals)
-            
-            if all_values:
-                values_matrix = np.array(all_values)
-                result[f'{key}_mean'] = np.mean(values_matrix, axis=0)
-                result[f'{key}_std'] = np.std(values_matrix, axis=0)
-                result[f'{key}_all'] = values_matrix
-        
-        return result
-    
-    # Process morphology
-    # Note: get_cluster_morphology() returns mean_rg, std_rg, mean_rg_normalized (not max_rg or mean_compactness)
-    morph_result = process_structural_data(morphology_data, ['mean_rg', 'std_rg', 'mean_rg_normalized'])
-    if morph_result:
-        npz_data['morphology_times'] = morph_result['times']
-        for key in ['mean_rg_mean', 'mean_rg_std', 'mean_rg_all', 
-                   'std_rg_mean', 'std_rg_std', 'std_rg_all',
-                   'mean_rg_normalized_mean', 'mean_rg_normalized_std', 'mean_rg_normalized_all']:
-            if key in morph_result:
-                npz_data[key] = morph_result[key]
-    
-    # Process spatial
-    spatial_result = process_structural_data(spatial_data, ['mean_nn_dist', 'std_nn_dist', 'mean_intra_nn_dist', 'std_intra_nn_dist'])
-    if spatial_result:
-        npz_data['spatial_times'] = spatial_result['times']
-        for key in ['mean_nn_dist_mean', 'mean_nn_dist_std', 'mean_nn_dist_all',
-                   'mean_intra_nn_dist_mean', 'mean_intra_nn_dist_std', 'mean_intra_nn_dist_all']:
-            if key in spatial_result:
-                npz_data[key] = spatial_result[key]
-    
-    # Process contacts
-    contacts_result = process_structural_data(contacts_data, ['mean_coord_qt', 'mean_coord_ft'])
-    if contacts_result:
-        npz_data['contacts_times'] = contacts_result['times']
-        for key in ['mean_coord_qt_mean', 'mean_coord_qt_std', 'mean_coord_qt_all',
-                   'mean_coord_ft_mean', 'mean_coord_ft_std', 'mean_coord_ft_all']:
-            if key in contacts_result:
-                npz_data[key] = contacts_result[key]
-    
-    # Process composition
-    composition_result = process_structural_data(composition_data, ['mean_qt_fraction'])
-    if composition_result:
-        npz_data['composition_times'] = composition_result['times']
-        # Rename keys for consistency with plotting functions
-        if 'mean_qt_fraction_mean' in composition_result:
-            npz_data['mean_composition_mean'] = composition_result['mean_qt_fraction_mean']
-            npz_data['mean_composition_std'] = composition_result['mean_qt_fraction_std']
-            npz_data['mean_composition_all'] = composition_result['mean_qt_fraction_all']
-    
-    # Add final frame values for histograms
-    valid_morph = [d for d in morphology_data if d is not None]
-    if valid_morph:
-        final_rg = [d['mean_rg'][-1] for d in valid_morph if len(d['mean_rg']) > 0]
-        if final_rg:
-            npz_data['final_rg_values'] = np.array(final_rg)
-    
-    valid_contacts = [d for d in contacts_data if d is not None]
-    if valid_contacts:
-        final_coord_qt = [d['mean_coord_qt'][-1] for d in valid_contacts if len(d['mean_coord_qt']) > 0]
-        final_coord_ft = [d['mean_coord_ft'][-1] for d in valid_contacts if len(d['mean_coord_ft']) > 0]
-        if final_coord_qt:
-            npz_data['final_coord_qt_values'] = np.array(final_coord_qt)
-        if final_coord_ft:
-            npz_data['final_coord_ft_values'] = np.array(final_coord_ft)
-    
-    # Composition final values and scatter data
-    valid_comp = [d for d in composition_data if d is not None]
-    if valid_comp:
-        final_comp = [d['mean_qt_fraction'][-1] for d in valid_comp if len(d['mean_qt_fraction']) > 0]
-        if final_comp:
-            npz_data['final_composition_values'] = np.array(final_comp)
-        
-        # Composition vs size scatter data (aggregated from all replicas, final frame)
-        all_fractions = []
-        all_sizes = []
-        for d in valid_comp:
-            if d['qt_fraction_per_cluster'] and d['size_per_cluster']:
-                final_fracs = d['qt_fraction_per_cluster'][-1]
-                final_sizes = d['size_per_cluster'][-1]
-                all_fractions.extend(final_fracs)
-                all_sizes.extend(final_sizes)
-        if all_fractions:
-            npz_data['composition_vs_size_fractions'] = np.array(all_fractions)
-            npz_data['composition_vs_size_sizes'] = np.array(all_sizes)
-    
-    if 'largest_cluster_all' in ensemble.statistics:
-        npz_data['final_largest_values'] = ensemble.statistics['largest_cluster_all'][:, -1]
-    
-    if 'fraction_bound_all' in ensemble.statistics:
-        npz_data['final_fraction_bound_values'] = ensemble.statistics['fraction_bound_all'][:, -1]
-    
-    if 'avg_cluster_all' in ensemble.statistics:
-        npz_data['final_avg_cluster_values'] = ensemble.statistics['avg_cluster_all'][:, -1]
-    
-    # Compute size fractions per replica
-    print("\nComputing size fractions...")
-    size_fraction_data = []
-    for idx, i in enumerate(available_replicas):
-        config = ensemble.replica_configs[i]
-        h5_file = config.output_file
-        try:
-            sf = analysis.get_size_fractions(h5_file, config)
-            size_fraction_data.append(sf)
-        except Exception as e:
-            print(f"  Replica {i}: Size fractions failed: {e}")
-            size_fraction_data.append(None)
-    
-    valid_sf = [d for d in size_fraction_data if d is not None]
-    if valid_sf:
-        all_times_sf = [d['times'] for d in valid_sf]
-        min_len_sf = min(len(t) for t in all_times_sf)
-        npz_data['size_fractions_times'] = valid_sf[0]['times'][:min_len_sf]
-        
-        # Store category names and boundaries as string arrays
-        category_names = valid_sf[0]['category_names']
-        npz_data['size_fractions_category_names'] = np.array(category_names)
-        
-        # Store boundaries as structured array
-        boundaries = valid_sf[0]['boundaries']
-        boundary_min = np.array([b[1] for b in boundaries])
-        boundary_max = np.array([b[2] if b[2] is not None else -1 for b in boundaries])
-        npz_data['size_fractions_boundary_min'] = boundary_min
-        npz_data['size_fractions_boundary_max'] = boundary_max
-        
-        for cat_name in category_names:
-            values = []
-            for d in valid_sf:
-                v = d['category_fractions'][cat_name][:min_len_sf]
-                if len(v) == min_len_sf:
-                    values.append(v)
-            if values:
-                matrix = np.array(values)
-                safe_key = cat_name.replace(' ', '_').replace('(', '').replace(')', '').replace('>', 'gt').replace('-', '_')
-                npz_data[f'size_frac_{safe_key}_mean'] = np.mean(matrix, axis=0)
-                npz_data[f'size_frac_{safe_key}_std'] = np.std(matrix, axis=0)
-        
-        print(f"  ✓ Size fractions computed ({len(category_names)} categories)")
-    
-    # Save NPZ
-    print("\n" + "-" * 60)
-    print("SAVING NPZ DATA")
-    print("-" * 60)
-    
-    npz_path = f"{ensemble_dir}ensemble_structural.npz"
-    np.savez_compressed(npz_path, **npz_data)
-    print(f"✓ Saved structural data to {npz_path}")
-    
-    # Print summary
+    ensemble.compute_structural_statistics(
+        stride=args.stride, parallel=args.parallel, n_workers=args.n_workers
+    )
+    ensemble.save_for_plotting()
+
     print("\n" + "=" * 60)
     print("ANALYSIS COMPLETE")
     print("=" * 60)
-    print(f"\nOutput files:")
-    print(f"  {stats_path}")
-    print(f"  {config_path}")
-    print(f"  {npz_path}")
-    print(f"\nDownload these files for local plotting with Ensemble_Plotting.ipynb")
-    
-    # Print summary metrics
+    print(f"Output files in {ensemble_dir}:")
+    print("  ensemble_statistics.json")
+    print("  ensemble_structural.npz")
+    print("  ensemble_config.json")
+    print("  ensemble_state.json")
+    print("\nDownload these for local plotting with Plot_Ensemble_Results.ipynb")
+
     if ensemble.summary_metrics:
+        m = ensemble.summary_metrics
         print("\n" + "-" * 60)
         print("SUMMARY METRICS")
         print("-" * 60)
-        m = ensemble.summary_metrics
         print(f"  Replicas: {m['n_replicas']}")
         if 'final_bonds_mean' in m:
-            print(f"  Final bonds: {m['final_bonds_mean']:.1f} ± {m['final_bonds_std']:.1f}")
+            print(f"  Final bonds: {m['final_bonds_mean']:.1f} \u00b1 {m['final_bonds_std']:.1f}")
         if 'final_largest_fraction_mean' in m:
-            print(f"  Final largest cluster: {m['final_largest_fraction_mean']*100:.1f}% ± {m['final_largest_fraction_std']*100:.1f}% of particles")
+            print(f"  Final largest cluster: {m['final_largest_fraction_mean']*100:.1f}% "
+                  f"\u00b1 {m['final_largest_fraction_std']*100:.1f}% of particles")
         if 'half_time_mean' in m:
-            half_time_us = m['half_time_mean'] * NS_TO_US
-            half_time_std_us = m['half_time_std'] * NS_TO_US
-            print(f"  Half-time: {half_time_us:.2f} ± {half_time_std_us:.2f} µs")
+            ht = m['half_time_mean'] * NS_TO_US
+            ht_std = m['half_time_std'] * NS_TO_US
+            print(f"  Half-time: {ht:.2f} \u00b1 {ht_std:.2f} \u00b5s")
 
 
 # =============================================================================
