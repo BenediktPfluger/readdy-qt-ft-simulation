@@ -190,7 +190,7 @@ def stage_r1_oracle(ensemble_dir: str) -> bool:
     shutil.copy(npz_p, npz_snapshot)
 
     # Re-run the CLI on the same directory (overwrites the JSON/NPZ in place).
-    cmd = [sys.executable, os.path.join(REPO_ROOT, "analyze_ensemble.py"),
+    cmd = [sys.executable, os.path.join(REPO_ROOT, "scripts", "analyze_ensemble.py"),
            "--ensemble-dir", ensemble_dir, "--stride", "1"]
     print("running:", " ".join(cmd))
     res = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True)
