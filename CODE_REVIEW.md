@@ -234,7 +234,7 @@ isolated physics → cheap safe bugfixes → logic dedup (formats preserved) →
 | **1** | Cheap format-neutral fixes: B-forces (coarse-stride forces/virial), B-stride, B-searchsorted, B-except, B-times, B-xyz, B-treewarn | none (trajectory contents shrink) | **DONE** — harness green (exit 0); legacy configs load (back-compat verified); A5 skipped (perf) |
 | **2** | Physics: P1 (equilibration_potential flag, default WCA); P2/P3/P4/P5 document-only | none | **DONE** — equilibration registers WCA while production registers LJ (verified); harness green; legacy configs default to WCA; README caveats §11a added |
 | **3** | Logic dedup, files in place: R3+B-prefix → R2 → R5 → R4 → R1/C3/C5 | **yes (R1)** | **DONE** — smoke Stage 5 R1 oracle now reports CLI == `save_for_plotting` (was 6-key drift); parallel == sequential; each sub-step its own commit |
-| **4** | Restructure into `qtft/` package + shims; update notebooks & SLURM in lockstep | rename only | notebooks run; CLIs work; SLURM paths correct |
+| **4** | Restructure into `qtft/` package + shims; update notebooks & SLURM in lockstep | rename only | **DONE** — qtft package (config/system/engine/analysis/ensemble/comparison/plotting) + scripts/; notebooks, SLURM gen, harness on qtft; shims removed; harness green incl. R1 |
 
 **Recommended first slice:** Phase 1 `B-forces` + Phase 2 `P1` — smallest, highest impact, isolated.
 
@@ -263,7 +263,7 @@ isolated physics → cheap safe bugfixes → logic dedup (formats preserved) →
 | R1 | save/aggregate dedup in CLI | 3 | **done** (oracle green) |
 | C3 | `convert_numpy` ×3 | 3 | **done** |
 | C5 | JSON/NPZ save logic duplicated | 3 (with R1) | **done** |
-| E | package restructure | 4 | open |
+| E | package restructure | 4 | **done** (`qtft/` + `scripts/`) |
 
 ---
 
