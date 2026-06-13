@@ -152,6 +152,8 @@ Largest single cleanup.
 > `analyze_ensemble.py` omits all six (its spatial `keys` list drops the `std_*` series). So
 > `ensemble_structural.npz` content depends on *which path produced it* — confirming the drift.
 > Phase-3 gate: after the dedup, `tools/smoke_test.py` Stage 5 must report zero differences.
+> **RESOLVED (Phase 3):** `analyze_ensemble.main()` now drives the class pipeline +
+> `save_for_plotting()`; Stage 5 reports CLI == `save_for_plotting`.
 
 ### R2 (Med) — Random placement duplicated
 `place_particles` and `equilibrate_system` both draw uniform positions independently. → Shared helper.
@@ -215,7 +217,7 @@ isolated physics → cheap safe bugfixes → logic dedup (formats preserved) →
 | **0** | Safety net: this doc + smoke harness + capture baselines + collect decisions | none | **DONE** — `tools/smoke_test.py` green on current code; R1 baseline captured (drift demonstrated) |
 | **1** | Cheap format-neutral fixes: B-forces (coarse-stride forces/virial), B-stride, B-searchsorted, B-except, B-times, B-xyz, B-treewarn | none (trajectory contents shrink) | **DONE** — harness green (exit 0); legacy configs load (back-compat verified); A5 skipped (perf) |
 | **2** | Physics: P1 (equilibration_potential flag, default WCA); P2/P3/P4/P5 document-only | none | **DONE** — equilibration registers WCA while production registers LJ (verified); harness green; legacy configs default to WCA; README caveats §11a added |
-| **3** | Logic dedup, files in place: R3+B-prefix → R2 → R5 → R4 → R1/C3/C5 | **yes (R1)** | **byte-compare** CLI vs `save_for_plotting()` output against Phase-0 baseline |
+| **3** | Logic dedup, files in place: R3+B-prefix → R2 → R5 → R4 → R1/C3/C5 | **yes (R1)** | **DONE** — smoke Stage 5 R1 oracle now reports CLI == `save_for_plotting` (was 6-key drift); parallel == sequential; each sub-step its own commit |
 | **4** | Restructure into `qtft/` package + shims; update notebooks & SLURM in lockstep | rename only | notebooks run; CLIs work; SLURM paths correct |
 
 **Recommended first slice:** Phase 1 `B-forces` + Phase 2 `P1` — smallest, highest impact, isolated.
@@ -237,14 +239,14 @@ isolated physics → cheap safe bugfixes → logic dedup (formats preserved) →
 | B-times | "ns" docstrings are step numbers | 1 | **done** |
 | B-xyz | positional xyz type mapping | 1 | **done** (from `particle_types`) |
 | B-treewarn | trees → `n−1` exact, drop warning | 1 | **done** |
-| B-prefix | single-run filename prefix divergence | 3 (with R3) | open |
-| R3 | param-string formatting dedup | 3 | open |
-| R2 | placement dedup | 3 | open |
-| R5 | run-pipeline triplication | 3 | open |
-| R4 | topology re-read per replica | 3 | open |
-| R1 | save/aggregate dedup in CLI | 3 | open |
-| C3 | `convert_numpy` ×3 | 3 | open |
-| C5 | JSON/NPZ save logic duplicated | 3 (with R1) | open |
+| B-prefix | single-run filename prefix divergence | 3 (with R3) | **done** |
+| R3 | param-string formatting dedup | 3 | **done** (`format_param_string`) |
+| R2 | placement dedup | 3 | **done** (`_random_positions`) |
+| R5 | run-pipeline triplication | 3 | **done** (`run_one`) |
+| R4 | topology re-read per replica | 3 | **done** (shared handle) |
+| R1 | save/aggregate dedup in CLI | 3 | **done** (oracle green) |
+| C3 | `convert_numpy` ×3 | 3 | **done** |
+| C5 | JSON/NPZ save logic duplicated | 3 (with R1) | **done** |
 | E | package restructure | 4 | open |
 
 ---
