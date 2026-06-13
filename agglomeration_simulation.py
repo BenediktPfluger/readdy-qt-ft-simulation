@@ -99,6 +99,26 @@ def _make_particle_rngs(seed: int) -> Tuple:
     return rng_qt, rng_ft
 
 
+def _random_positions(config: "SimulationConfig") -> Tuple[np.ndarray, np.ndarray]:
+    """Uniform random Qt and Ft positions inside the box.
+
+    Uses independent per-species RNGs seeded from ``config.rng_seed`` (via
+    ``_make_particle_rngs``), so equilibration placement and production placement
+    are reproducible and consistent. Shared by ``place_particles`` and
+    ``equilibrate_system`` to avoid duplicated placement logic.
+
+    Returns
+    -------
+    pos_qt, pos_ft : tuple of ndarray
+        Arrays of shape (n_qt, 3) and (n_ft, 3).
+    """
+    rng_qt, rng_ft = _make_particle_rngs(config.rng_seed)
+    L = np.array(config.box_size, dtype=float)
+    pos_qt = rng_qt.uniform(-L / 2.0, L / 2.0, size=(config.n_qt, 3))
+    pos_ft = rng_ft.uniform(-L / 2.0, L / 2.0, size=(config.n_ft, 3))
+    return pos_qt, pos_ft
+
+
 # =============================================================================
 # CONFIGURATION DATACLASSES
 # =============================================================================
@@ -1334,8 +1354,9 @@ def place_particles(
     pos_qt, pos_ft : tuple of ndarray
         Arrays of positions used for Qt and Ft particles
     """
-    L = np.array(config.box_size, dtype=float)
-    
+    # Random positions for any species not explicitly provided (deterministic from seed)
+    rand_qt, rand_ft = _random_positions(config)
+
     # Generate or use provided positions for Qt
     if positions_qt is not None:
         pos_qt = np.asarray(positions_qt)
@@ -1343,10 +1364,9 @@ def place_particles(
             raise ValueError(f"positions_qt has {pos_qt.shape[0]} particles, expected {config.n_qt}")
         placement_qt = "provided"
     else:
-        rng_qt, _ = _make_particle_rngs(config.rng_seed)
-        pos_qt = rng_qt.uniform(-L / 2.0, L / 2.0, size=(config.n_qt, 3))
+        pos_qt = rand_qt
         placement_qt = "random"
-    
+
     # Generate or use provided positions for Ft
     if positions_ft is not None:
         pos_ft = np.asarray(positions_ft)
@@ -1354,8 +1374,7 @@ def place_particles(
             raise ValueError(f"positions_ft has {pos_ft.shape[0]} particles, expected {config.n_ft}")
         placement_ft = "provided"
     else:
-        _, rng_ft = _make_particle_rngs(config.rng_seed)
-        pos_ft = rng_ft.uniform(-L / 2.0, L / 2.0, size=(config.n_ft, 3))
+        pos_ft = rand_ft
         placement_ft = "random"
     
     # Add as single-particle topologies
@@ -1474,13 +1493,9 @@ def equilibrate_system(
     if config.kernel == "CPU" and config.n_threads is not None:
         eq_simulation.kernel_configuration.n_threads = int(config.n_threads)
     
-    # Place particles randomly
-    rng_qt, rng_ft = _make_particle_rngs(config.rng_seed)
-    L = np.array(config.box_size, dtype=float)
-    
-    pos_qt = rng_qt.uniform(-L / 2.0, L / 2.0, size=(config.n_qt, 3))
-    pos_ft = rng_ft.uniform(-L / 2.0, L / 2.0, size=(config.n_ft, 3))
-    
+    # Place particles randomly (same deterministic placement as place_particles)
+    pos_qt, pos_ft = _random_positions(config)
+
     for p in pos_qt:
         eq_simulation.add_topology(config.topology.name, [config.qt.name], p.reshape(1, 3))
     
