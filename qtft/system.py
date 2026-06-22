@@ -8,6 +8,14 @@ import readdy
 from .config import SimulationConfig
 
 
+# σ chosen so the 12-6 LJ minimum (and the WCA exclusion edge, both at 2^(1/6)·σ)
+# sit at the contact distance r_i+r_j, matching the harmonic bond length r0
+# (config.equilibrium_bond_length). Hence σ = (r_i+r_j) / 2^(1/6). This places the
+# LJ attractive minimum and the WCA exclusion exactly at physical contact, so bonded
+# pairs are not squeezed by a mismatched LJ minimum (resolves caveat P2).
+_SIGMA_AT_CONTACT = 2.0 ** (-1.0 / 6.0)   # ≈ 0.8909
+
+
 def create_system(config: SimulationConfig, equilibration_mode: bool = False) -> readdy.ReactionDiffusionSystem:
     """
     Create and configure a ReaDDy reaction-diffusion system.
@@ -100,10 +108,11 @@ def _add_potentials(
     else:
         raise ValueError(f"potential_type must be 'WCA' or 'LJ', got: {potential_type}")
 
-    # Calculate sigma values
-    sigma_qq = 2.0 * config.qt.radius
-    sigma_ff = 2.0 * config.ft.radius
-    sigma_qf = config.qt.radius + config.ft.radius
+    # Calculate sigma values. σ = (r_i+r_j)/2^(1/6) puts the LJ minimum / WCA
+    # exclusion at the contact distance r_i+r_j (= bond length); see _SIGMA_AT_CONTACT.
+    sigma_qq = 2.0 * config.qt.radius * _SIGMA_AT_CONTACT
+    sigma_ff = 2.0 * config.ft.radius * _SIGMA_AT_CONTACT
+    sigma_qf = (config.qt.radius + config.ft.radius) * _SIGMA_AT_CONTACT
 
     # Calculate cutoffs
     cutoff_qq = cf * sigma_qq

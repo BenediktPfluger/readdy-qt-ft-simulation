@@ -51,7 +51,7 @@ condition of every dataset.**
 (default `"WCA"`); equilibration uses it, production keeps `lj.potential_type`. Default WCA
 restores the documented intent; existing datasets were equilibrated under LJ.
 
-### P2 (High, needs experiment) — LJ minimum / WCA exclusion sits ~12% beyond the bond length
+### P2 (RESOLVED) — LJ minimum / WCA exclusion sits ~12% beyond the bond length
 `_add_potentials` sets `σ = contact distance` (`σ_qq = 2·r`, `σ_qf = r_Qt + r_Ft`). For a 12-6
 LJ the minimum is at `2^(1/6)·σ ≈ 1.122·σ`, and the WCA repulsive cutoff is at the same `1.122·σ`.
 But the harmonic bond equilibrium length is `r0 = r_Qt + r_Ft = σ_qf`, where the LJ is still
@@ -60,8 +60,12 @@ equilibrium, and (because ReaDDy does not auto-exclude intra-topology pairs from
 potentials) a double interaction on every bonded pair. Contact/Rg metrics inherit the offset.
 Options (changes the meaning of every swept ε): set `σ = (r1+r2)/2^(1/6)` (LJ min at contact),
 set bond length `r0 = 2^(1/6)·σ`, or deliberately exclude bonded pairs.
-→ **Decision: DEFERRED.** Documented as a known caveat this round; no code change. Revisit as a
-separate physics pass, with a small two-particle ReaDDy probe to confirm σ/exclusion semantics first.
+→ **Decision: RESOLVED.** Took the first option: `_add_potentials` now sets
+`σ = (r_i+r_j)/2^(1/6)` (constant `_SIGMA_AT_CONTACT = 2^(-1/6)` in `system.py`), so the LJ
+minimum and WCA exclusion land at contact `r_i+r_j` = the harmonic bond length. The bond is
+unchanged. Verified with a two-particle LJ probe (free Qt+Ft settle at `r_Qt+r_Ft`) and the
+`tools/smoke_test.py` regression gate. Note: existing `Different_Particle_Ratios/` datasets
+predate this and used the old `σ = r_i+r_j` convention.
 
 ### P3 (Med) — Cluster diffusion defaults to monomer diffusion
 `ParticleConfig.cluster_diffusion` defaults to the monomer `diffusion`. Large clusters do not slow

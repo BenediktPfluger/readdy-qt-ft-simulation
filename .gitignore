@@ -3,6 +3,8 @@
 # =============================================================================
 # Whole ensemble/data tree
 Different_Particle_Ratios/
+# Single-run output tree
+Simulation_Files_Single_Runs/
 
 # Trajectories and exports (large)
 *.h5

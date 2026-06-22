@@ -40,8 +40,10 @@ particles come within `binding_radius`, at rate `kon`:
 **Potentials.**
 - **Pairwise Lennard-Jones** for excluded volume, registered for all 10 type pairs.
   `potential_type="WCA"` → purely repulsive (cutoff `2^(1/6)·σ`); `"LJ"` → full attractive
-  well (cutoff `2.5·σ`). σ is taken from the sum of the two radii; ε is set per pair through a
-  cascade of defaults (see §6).
+  well (cutoff `2.5·σ`). σ is set so the LJ minimum / WCA exclusion fall at the contact
+  distance: `σ = (r_i + r_j) / 2^(1/6) ≈ 0.8909·(r_i + r_j)`, which puts the well minimum at
+  `r_i + r_j` = the harmonic bond length (see §11a, P2). ε is set per pair through a cascade of
+  defaults (see §6).
 - **Harmonic bonds** (`k_bond`) hold bonded particles inside a cluster at equilibrium length
   `r_Qt + r_Ft`.
 
@@ -353,12 +355,14 @@ binding rate kon=25, 20 ps timestep, 100 µs total.
 These are deliberate simplifications / open questions in the current physical model, documented
 here rather than silently fixed (see `CODE_REVIEW.md` for IDs and history):
 
-- **(P2) LJ minimum sits ~12% beyond the bond length.** σ is set to the contact distance
-  (`σ = r_i + r_j`), so the 12-6 LJ minimum is at `2^(1/6)·σ ≈ 1.122·σ`, while the harmonic bond
-  equilibrium length is `r0 = r_i + r_j = σ`. Bonded pairs therefore feel both the bond and the
-  pair LJ with mismatched minima (ReaDDy does not exclude intra-topology pairs from pair
-  potentials). Rg/contact metrics inherit this offset. **Deferred** — revisit with a small
-  two-particle probe before changing the σ/bond convention.
+- **(P2) RESOLVED — LJ minimum now sits at the bond length.** σ is set to
+  `σ = (r_i + r_j) / 2^(1/6) ≈ 0.8909·(r_i + r_j)`, so the 12-6 LJ minimum at `2^(1/6)·σ` and the
+  WCA exclusion edge both land at the contact distance `r_i + r_j`, which equals the harmonic
+  bond equilibrium length `r0 = r_i + r_j`. Bonded pairs are no longer squeezed by a mismatched
+  LJ minimum. (ReaDDy still does not exclude intra-topology pairs from pair potentials, but the
+  bond and LJ minima now coincide.) **Note:** datasets in `Different_Particle_Ratios/` predate
+  this fix and were run under the old `σ = r_i + r_j` convention, so they are not physically
+  comparable to runs made after this change.
 - **(P3) Cluster diffusion = monomer diffusion.** `ParticleConfig.cluster_diffusion` defaults to
   the monomer `diffusion`; large clusters do not slow down as `D ∝ 1/R`. Set `cluster_diffusion`
   explicitly if you need size-dependent mobility.
