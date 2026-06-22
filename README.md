@@ -102,27 +102,28 @@ import qtft as sim
 import qtft.analysis as analysis
 import qtft.plotting as plotting
 
-# 1. Configure (biological values; see §6)
+# 1. Configure (current standard values; see §6)
 config = sim.SimulationConfig(
-    qt=sim.ParticleConfig("Qt", radius=42.0, diffusion=0.5),
-    ft=sim.ParticleConfig("Ft", radius=12.0, diffusion=1.0),
-    topology=sim.TopologyConfig(binding_radius=55.0, kon=25.0, k_bond=10.0),
+    qt=sim.ParticleConfig("Qt", radius=21.0, diffusion=0.5, cluster_diffusion=0.3),
+    ft=sim.ParticleConfig("Ft", radius=6.0, diffusion=1.0, cluster_diffusion=0.7),
+    topology=sim.TopologyConfig(binding_radius=27.25, kon=0.001, k_bond=10.0),
     lj=sim.LennardJonesConfig(
-        epsilon_QtQt=2.5, epsilon_FtFt=1.5, epsilon_QtFt=2.5,
+        epsilon_QtQt=1.5, epsilon_FtFt=1.5, epsilon_QtFt=3.0,
         potential_type="LJ",
     ),
-    box_size=(1000.0, 1000.0, 1000.0),
+    box_size=(500.0, 500.0, 500.0),
     temperature=300.0,
-    timestep=0.02,        # ns  (=20 ps)
-    n_steps=5_000_000,    # → 100 µs total
+    timestep=0.05,        # ns  (=50 ps)
+    n_steps=2_000_000,    # → 100 µs total
     record_stride=100,
     observable_stride=100,
-    n_qt=200,
-    n_ft=400,
+    particles_observable_stride=1000,
+    n_qt=600,
+    n_ft=50,
 )
 
 # 2. Equilibrate (WCA, no reactions) → 3. build → 4. place → 5. run (LJ + reactions)
-pos_qt, pos_ft = sim.equilibrate_system(config, n_steps=5000)
+pos_qt, pos_ft = sim.equilibrate_system(config, n_steps=10000)
 system     = sim.create_system(config)
 simulation = sim.create_simulation(system, config, overwrite=True)
 sim.place_particles(simulation, config, positions_qt=pos_qt, positions_ft=pos_ft)
@@ -148,27 +149,29 @@ config.save_json("simulation_config.json")
 fully JSON-serializable (`config.save_json(...)` / `SimulationConfig.load_json(...)`,
 `from_dict` / `to_dict` / `to_flat_dict`).
 
-The table below leads with the **biological values used in the real runs** (the notebook /
-`Different_Particle_Ratios/` datasets). The code dataclass defaults are small smoke-test
+The table below leads with the **current standard values used in the real runs** (the notebook /
+`Simulation_Files_Single_Runs/` datasets). The code dataclass defaults are small smoke-test
 values — see the footnote.
 
-| Parameter | Meaning | Units | Biological value |
-|-----------|---------|-------|------------------|
-| `qt.radius`, `qt.diffusion` | Qt encapsulin size & diffusion | nm, nm²/ns | 42.0, 0.5 |
-| `ft.radius`, `ft.diffusion` | Ft ferritin size & diffusion | nm, nm²/ns | 12.0, 1.0 |
-| `n_qt`, `n_ft` | particle counts | – | 200, 400 |
-| `topology.binding_radius` | reaction capture distance | nm | 55.0 (≈ r_Qt+r_Ft+buffer) |
-| `topology.kon` | binding rate | nm³/(ns·part) | **swept: 1e-5 … 75** |
+| Parameter | Meaning | Units | Standard value |
+|-----------|---------|-------|----------------|
+| `qt.radius`, `qt.diffusion` | Qt encapsulin size & diffusion | nm, nm²/ns | 21.0, 0.5 |
+| `qt.cluster_diffusion` | Qt diffusion once bound in a cluster | nm²/ns | 0.3 |
+| `ft.radius`, `ft.diffusion` | Ft ferritin size & diffusion | nm, nm²/ns | 6.0, 1.0 |
+| `ft.cluster_diffusion` | Ft diffusion once bound in a cluster | nm²/ns | 0.7 |
+| `n_qt`, `n_ft` | particle counts | – | swept: 200–600 / 50–2000 (notebook: 600 / 50) |
+| `topology.binding_radius` | reaction capture distance | nm | 27.25 (≈ r_Qt+r_Ft+buffer) |
+| `topology.kon` | binding rate | nm³/(ns·part) | 0.001 |
 | `topology.k_bond` | harmonic bond stiffness | kJ/(mol·nm²) | 10.0 |
-| `lj.epsilon_QtQt/FtFt/QtFt` | well depths for the three free pairs | kJ/mol | ≈ 2.5 / 1.5 / 2.5 (swept) |
+| `lj.epsilon_QtQt/FtFt/QtFt` | well depths for the three free pairs | kJ/mol | 1.5 / 1.5 / 3.0 |
 | `lj.potential_type` | `"WCA"` (repulsive) or `"LJ"` (attractive) | – | `LJ` for production |
-| `box_size` | cubic box edge | nm | (1000, 1000, 1000) |
+| `box_size` | cubic box edge | nm | (500, 500, 500) |
 | `temperature` | – | K | 300 |
 | `equilibration_potential` | potential during equilibration (`"WCA"` or `"LJ"`); reactions always off | – | `WCA` |
-| `timestep` | integration step | ns | 0.01–0.03 (10–30 ps) |
-| `n_steps` | total steps (→ 50–150 µs) | – | 5,000,000 |
+| `timestep` | integration step | ns | 0.05 (50 ps) |
+| `n_steps` | total steps (→ 100 µs) | – | 2,000,000 |
 | `record_stride`, `observable_stride` | save cadence | steps | 100 |
-| `particles_observable_stride` | per-particle position cadence (`None`=off, saves disk) | steps | optional |
+| `particles_observable_stride` | per-particle position cadence (`None`=off, saves disk) | steps | 1000 |
 | `heavy_observable_stride` | cadence for unread heavy observables (forces, virial); `None`=100×`observable_stride` | steps | optional |
 | `kernel`, `n_threads` | `"CPU"`/`"SingleCPU"`, threads | – | CPU, 4+ |
 | `rng_seed` | RNG seed (per-replica in ensembles) | – | varies |
@@ -329,9 +332,9 @@ Auto-generated trajectory / ensemble names encode the run parameters:
 {n_qt}Qt_{n_ft}Ft_{POT}_eQQ{εQtQt}_eFF{εFtFt}_eQF{εQtFt}_kon{kon}_dt{timestep}ps_{total_time}us
 ```
 
-Example — `200Qt_400Ft_LJ_eQQ2.5_eFF1.5_eQF2.5_kon25_dt20ps_100us`:
-200 Qt + 400 Ft, full LJ potential, ε(QtQt)=2.5 / ε(FtFt)=1.5 / ε(QtFt)=2.5 kJ/mol,
-binding rate kon=25, 20 ps timestep, 100 µs total.
+Example — `600Qt_50Ft_LJ_eQQ1.5_eFF1.5_eQF3_kon0.001_dt50ps_100us`:
+600 Qt + 50 Ft, full LJ potential, ε(QtQt)=1.5 / ε(FtFt)=1.5 / ε(QtFt)=3.0 kJ/mol,
+binding rate kon=0.001, 50 ps timestep, 100 µs total.
 
 ---
 
@@ -363,9 +366,10 @@ here rather than silently fixed (see `CODE_REVIEW.md` for IDs and history):
   bond and LJ minima now coincide.) **Note:** datasets in `Different_Particle_Ratios/` predate
   this fix and were run under the old `σ = r_i + r_j` convention, so they are not physically
   comparable to runs made after this change.
-- **(P3) Cluster diffusion = monomer diffusion.** `ParticleConfig.cluster_diffusion` defaults to
-  the monomer `diffusion`; large clusters do not slow down as `D ∝ 1/R`. Set `cluster_diffusion`
-  explicitly if you need size-dependent mobility.
+- **(P3) Cluster diffusion is a single fixed value, not size-dependent.** `ParticleConfig.cluster_diffusion`
+  defaults to the monomer `diffusion`; clusters still do not slow down as `D ∝ 1/R`. The current
+  standard config sets it explicitly (Qt 0.3, Ft 0.7 nm²/ns), so bound particles diffuse slower than
+  free monomers, but the value is constant regardless of cluster size.
 - **(P4) `kon` is a microscopic rate.** It is passed straight to ReaDDy's spatial-reaction `rate`
   (a per-pair `1/time` rate), not the macroscopic `nm³/(ns·particle)` constant the older label
   implied. Treat the swept `kon` values as microscopic rates.
@@ -392,3 +396,24 @@ Each subdirectory is one 10-replica ensemble (layout in §6). All current sets u
 | `200Qt_400Ft_LJ_eQQ1_eFF1.5_eQF2_kon75_dt10ps_50us` | 75 | 10 ps | 50 µs |
 
 Plus `Plots_Comparison_*/` directories holding cross-ensemble comparison figures and data.
+
+> **Note:** these `Different_Particle_Ratios/` ensembles use the **old** model parameters
+> (42/12 nm radii, ε≈2.5/1.5/2.5) and predate the P2 σ-at-contact fix (§11a), so they are not
+> physically comparable to runs made with the current standard values.
+
+### Single-run parameter exploration — `Simulation_Files_Single_Runs/`
+
+The current single runs sweep the **Qt/Ft particle ratio** at the new standard parameters
+(full `LJ`, `eQQ1.5 / eFF1.5 / eQF3`, `kon0.001`, `dt50ps`, 100 µs). Each is one single run
+(not a 10-replica ensemble) and is stored locally only — this tree is gitignored and not in the
+repo:
+
+| Run directory | n_qt | n_ft |
+|---------------|------|------|
+| `200Qt_200Ft_LJ_eQQ1.5_eFF1.5_eQF3_kon0.001_dt50ps_100us` | 200 | 200 |
+| `200Qt_400Ft_LJ_eQQ1.5_eFF1.5_eQF3_kon0.001_dt50ps_100us` | 200 | 400 |
+| `200Qt_1000Ft_LJ_eQQ1.5_eFF1.5_eQF3_kon0.001_dt50ps_100us` | 200 | 1000 |
+| `200Qt_2000Ft_LJ_eQQ1.5_eFF1.5_eQF3_kon0.001_dt50ps_100us` | 200 | 2000 |
+| `400Qt_200Ft_LJ_eQQ1.5_eFF1.5_eQF3_kon0.001_dt50ps_100us` | 400 | 200 |
+| `600Qt_200Ft_LJ_eQQ1.5_eFF1.5_eQF3_kon0.001_dt50ps_100us` | 600 | 200 |
+| `600Qt_50Ft_LJ_eQQ1.5_eFF1.5_eQF3_kon0.001_dt50ps_100us` | 600 | 50 |
