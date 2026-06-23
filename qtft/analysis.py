@@ -1834,6 +1834,135 @@ def load_ensemble_data(results_dir: str) -> Tuple[Dict, Dict, Dict]:
 
 
 
+def _fmt_mean_std(mean: float, std: float, decimals: int = 1) -> str:
+    """Format a mean ± SD pair as a string, e.g. ``596.6 ± 1.3``."""
+    return f"{mean:.{decimals}f} ± {std:.{decimals}f}"
+
+
+def _final_state_rows(stats: Dict, config: Optional[Dict] = None) -> List[Tuple[str, str, str]]:
+    """
+    Build the (Metric, Value, Unit) rows for a single ensemble's final state.
+
+    Aggregation metrics come from the final value of the ensemble time-series arrays
+    (``{key}_mean[-1]`` ± ``{key}_std[-1]``); kinetics/percolation come from the
+    pre-computed ``stats['summary']`` dict. Missing metrics are silently skipped.
+
+    Returns a list of ``(metric, value_string, unit)`` tuples (shared by the
+    single-ensemble and comparison tables).
+    """
+    rows: List[Tuple[str, str, str]] = []
+
+    def final_pair(key):
+        mean = stats.get(f"{key}_mean")
+        std = stats.get(f"{key}_std")
+        if mean is None or std is None or len(mean) == 0:
+            return None
+        return float(np.asarray(mean)[-1]), float(np.asarray(std)[-1])
+
+    # --- Aggregation / final state ---
+    bonds = final_pair("bonds")
+    if bonds:
+        rows.append(("Number of bonds", _fmt_mean_std(*bonds, 1), "—"))
+
+    clusters = final_pair("n_clusters")
+    if clusters:
+        rows.append(("Individual topologies", _fmt_mean_std(*clusters, 1), "—"))
+
+    avg = final_pair("avg_cluster")
+    if avg:
+        rows.append(("Average cluster size", _fmt_mean_std(*avg, 1), "particles"))
+
+    largest = final_pair("largest_cluster")
+    if largest:
+        rows.append(("Largest cluster size", _fmt_mean_std(*largest, 1), "particles"))
+        total = None
+        if config is not None:
+            total = (config.get("n_qt") or 0) + (config.get("n_ft") or 0)
+        if total:
+            frac_mean = largest[0] / total * 100.0
+            frac_std = largest[1] / total * 100.0
+            rows.append(("Largest cluster fraction",
+                         _fmt_mean_std(frac_mean, frac_std, 1), "% of particles"))
+
+    fbound = final_pair("fraction_bound")
+    if fbound:
+        rows.append(("Fraction bound", _fmt_mean_std(*fbound, 3), "—"))
+
+    # --- Kinetics & percolation (from the summary dict) ---
+    m = stats.get("summary", {}) or {}
+    if "half_time_mean" in m:
+        rows.append(("Half-time t₅₀",
+                     _fmt_mean_std(m["half_time_mean"] * NS_TO_US,
+                                   m.get("half_time_std", 0.0) * NS_TO_US, 2), "µs"))
+    if "percolation_count" in m:
+        n_rep = m.get("n_replicas", stats.get("n_replicas", "?"))
+        frac = m.get("percolation_fraction", 0.0) * 100.0
+        rows.append(("Replicas percolated",
+                     f"{m['percolation_count']}/{n_rep} ({frac:.0f}%)", "—"))
+    if "percolation_time_mean" in m:
+        rows.append(("Percolation time",
+                     _fmt_mean_std(m["percolation_time_mean"] * NS_TO_US,
+                                   m.get("percolation_time_std", 0.0) * NS_TO_US, 2), "µs"))
+
+    return rows
+
+
+def build_final_state_table(stats: Dict, config: Optional[Dict] = None):
+    """
+    Build a final-state summary table for a single ensemble.
+
+    Parameters
+    ----------
+    stats : dict
+        Ensemble statistics (from JSON or EnsembleSimulation), including the per-replica
+        ``{key}_mean``/``{key}_std`` time series and a ``summary`` sub-dict.
+    config : dict, optional
+        Configuration dictionary; used for the largest-cluster fraction
+        (``n_qt`` + ``n_ft``).
+
+    Returns
+    -------
+    pandas.DataFrame
+        Indexed by ``Metric`` with columns ``["Value", "Unit"]``, where ``Value`` is a
+        formatted ``"mean ± SD"`` string. Rows: final-state aggregation metrics followed by
+        kinetics & percolation metrics.
+    """
+    import pandas as pd
+
+    rows = _final_state_rows(stats, config)
+    df = pd.DataFrame(rows, columns=["Metric", "Value", "Unit"]).set_index("Metric")
+    return df
+
+
+def save_table_files(df, path_base: str, *, caption: Optional[str] = None,
+                     label: Optional[str] = None):
+    """
+    Save a results table as ``{path_base}.csv`` and ``{path_base}.tex``.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Table to save (e.g. from :func:`build_final_state_table` or
+        ``qtft.comparison.build_comparison_table``).
+    path_base : str
+        Output path without extension.
+    caption, label : str, optional
+        LaTeX caption/label passed to ``DataFrame.to_latex`` (for thesis tables).
+    """
+    csv_path = f"{path_base}.csv"
+    tex_path = f"{path_base}.tex"
+
+    df.to_csv(csv_path)
+    print(f"✓ Saved table to {csv_path}")
+
+    # escape=True escapes LaTeX specials (notably % -> \%, which would otherwise comment out
+    # the line) while leaving the unicode ±, µ and subscripts (t₅₀) untouched — those aren't in
+    # pandas' escape set and render directly under a unicode-aware engine (XeLaTeX/LuaLaTeX or
+    # utf8 inputenc).
+    df.to_latex(tex_path, caption=caption, label=label, escape=True)
+    print(f"✓ Saved table to {tex_path}")
+
+
 def print_ensemble_summary(stats: Dict, config: Optional[Dict] = None):
     """
     Print a summary of ensemble statistics.

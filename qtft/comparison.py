@@ -440,7 +440,60 @@ def run_comparison(ensemble_specs: list, output_dir: str):
     print(f"  import qtft.plotting as plotting")
     print(f"  comparison = ae.load_comparison_data('{output_dir}')")
     print(f"  plotting.plot_comparison_summary(comparison)")
-    
+
     return comparison
+
+
+def build_comparison_table(comparison: dict):
+    """
+    Build a final-state comparison table across ensembles.
+
+    Rows are metrics (final-state aggregation followed by kinetics & percolation, with units
+    appended to the metric name); columns are the ensemble labels. Each cell is a formatted
+    ``"mean ± SD"`` string. Reuses the same per-ensemble row builder as the single-ensemble
+    table (``qtft.analysis._final_state_rows``) so formatting and metric definitions stay
+    identical.
+
+    Parameters
+    ----------
+    comparison : dict
+        Comparison data structure from :func:`compare_ensembles` (each ensemble must carry
+        ``stats`` with the ``{key}_mean``/``{key}_std`` series and a ``summary`` sub-dict).
+
+    Returns
+    -------
+    pandas.DataFrame
+        Indexed by metric name (unit appended, e.g. ``"Half-time t₅₀ (µs)"``), one column per
+        ensemble label.
+    """
+    import pandas as pd
+
+    from .analysis import _final_state_rows
+
+    def metric_name(metric: str, unit: str) -> str:
+        return metric if unit in ("—", "", None) else f"{metric} ({unit})"
+
+    columns = {}
+    row_order = []
+    seen = set()
+
+    for label in comparison["labels"]:
+        ens = comparison["ensembles"][label]
+        rows = _final_state_rows(ens.get("stats", {}), ens.get("config"))
+        col = {}
+        for metric, value, unit in rows:
+            name = metric_name(metric, unit)
+            col[name] = value
+            if name not in seen:
+                seen.add(name)
+                row_order.append(name)
+        columns[label] = col
+
+    # Assemble into a DataFrame (rows in first-seen order, columns = ensemble labels)
+    data = {label: [columns[label].get(name, "—") for name in row_order]
+            for label in comparison["labels"]}
+    df = pd.DataFrame(data, index=row_order)
+    df.index.name = "Metric"
+    return df
 
 

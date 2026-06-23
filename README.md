@@ -69,9 +69,9 @@ All code lives in the **`qtft`** package; `scripts/` holds thin CLI wrappers.
 | `qtft.system` | ReaDDy system builders: `create_system`, species/potentials/topologies. |
 | `qtft.engine` | Build + run: `create_simulation`, `place_particles`, `run_simulation`, `equilibrate_system`, and the one-shot `run_one`. |
 | `qtft.ensemble` | `EnsembleSimulation` class — multi-replica orchestration, local/parallel runs, SLURM script generation, result collection, statistics, save/load. |
-| `qtft.analysis` | Matplotlib-free trajectory analysis: cluster stats, bond counts, binding kinetics, morphology (Rg), spatial distribution, contacts, composition, size fractions. Also `convert_h5_to_xyz` (OVITO) and `load_ensemble_data`. |
+| `qtft.analysis` | Matplotlib-free trajectory analysis: cluster stats, bond counts, binding kinetics, morphology (Rg), spatial distribution, contacts, composition, size fractions. Also `convert_h5_to_xyz` (OVITO), `load_ensemble_data`, and numeric results tables (`build_final_state_table`, `save_table_files`). |
 | `qtft.plotting` | All matplotlib plots: single-run, ensemble, and cross-ensemble comparison figures. |
-| `qtft.comparison` | Cross-ensemble comparison helpers (`compare_ensembles`, `save/load_comparison_data`, …). |
+| `qtft.comparison` | Cross-ensemble comparison helpers (`compare_ensembles`, `save/load_comparison_data`, `build_comparison_table`, …). |
 | `scripts/analyze_ensemble.py` | CLI to (re)analyze an ensemble directory in parallel; `compare` subcommand. |
 | `scripts/run_replica.py` | CLI to run **one** replica from a config JSON (used locally and by SLURM job arrays). |
 | `Run_Simulation.ipynb` | Main user notebook: configure → single run + plots → build & run ensemble → XYZ export. |
@@ -302,7 +302,10 @@ This (re)writes `ensemble_statistics.json` and `ensemble_structural.npz`.
 
 Load aggregated results for plotting with
 `stats, structural, config = analysis.load_ensemble_data("<ensemble_dir>")` and summarize with
-`analysis.print_ensemble_summary(stats, config)`.
+`analysis.print_ensemble_summary(stats, config)`. For a numeric final-state table (mean ± SD,
+exportable to CSV/LaTeX) use `analysis.build_final_state_table(stats, config)` for one ensemble
+or `comparison.build_comparison_table(comparison)` across ensembles, then
+`analysis.save_table_files(df, "<path_base>", caption=..., label=...)`.
 
 ---
 
