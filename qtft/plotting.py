@@ -130,7 +130,7 @@ def plot_composition_analysis(
     ax_time.fill_between(times_us,
                          composition["mean_qt_fraction"] - composition["std_qt_fraction"],
                          composition["mean_qt_fraction"] + composition["std_qt_fraction"],
-                         alpha=0.3, color='blue', label='±1 std')
+                         alpha=0.3, color='blue', label='± 1 SD')
     ax_time.axhline(0.5, color='gray', linestyle='--', alpha=0.5, label='Equal mix')
     
     ax_time.set_xlabel(time_label, fontsize=FONTSIZE_LABEL)
@@ -310,7 +310,7 @@ def plot_structural_analysis(
     ax_rg_time.fill_between(times_us, 
                             morphology["mean_rg"] - morphology["std_rg"],
                             morphology["mean_rg"] + morphology["std_rg"],
-                            alpha=0.3, color='blue', label='±1 std')
+                            alpha=0.3, color='blue', label='± 1 SD')
     ax_rg_time.set_xlabel(time_label, fontsize=FONTSIZE_LABEL)
     ax_rg_time.set_ylabel("Radius of Gyration (nm)", fontsize=FONTSIZE_LABEL)
     ax_rg_time.set_title("Cluster Rg Over Time", fontsize=FONTSIZE_TITLE, fontweight='bold')
@@ -1274,29 +1274,35 @@ def _plot_size_fractions(ax, stats, times_us, time_label, config: Optional[Simul
 
 def _ensemble_plot_with_band(
     ax, times, mean, std, color, n_replicas,
-    all_data=None, show_individual=False, individual_alpha=0.3
+    all_data=None, show_individual=False, individual_alpha=0.3,
+    label=None, band_label='± 1 SD'
 ) -> bool:
     """
     Helper function to plot mean with std band for ensemble data.
-    
+
+    Parameters such as ``label`` (mean-line legend label) and ``band_label`` allow
+    overlaying multiple series in one axes without duplicate legend entries
+    (pass ``band_label='_nolegend_'`` for the second series).
+
     Returns True if data was plotted, False otherwise.
     """
     if mean is None or len(mean) == 0:
         return False
-    
+
     if n_replicas <= 0:
         n_replicas = 1  # Fallback to avoid confusing labels
-    
+
     mean = np.asarray(mean)
-    
+
     # Handle std being None (plot without error band)
     if std is None:
         std = np.zeros_like(mean)
     else:
         std = np.asarray(std)
-    
-    ax.plot(times, mean, color=color, linewidth=2, label=f'Mean (N={n_replicas})')
-    ax.fill_between(times, mean - std, mean + std, color=color, alpha=0.3, label='± 1 std')
+
+    mean_label = label if label is not None else f'Mean (N={n_replicas})'
+    ax.plot(times, mean, color=color, linewidth=2, label=mean_label)
+    ax.fill_between(times, mean - std, mean + std, color=color, alpha=0.3, label=band_label)
     
     if show_individual and all_data is not None:
         for data in all_data:
@@ -1353,10 +1359,10 @@ def plot_ensemble_observables(
     
     Plot Layout (4×3)
     -----------------
-    Row 1: [Bonds] [Energy] [Pressure]
-    Row 2: [Number of Clusters] [Largest Cluster] [Fraction Bound]
-    Row 3: [Particle Counts] [Cumulative Reactions] [Average Cluster Size]
-    Row 4: [Final Largest Distribution] [Final Fraction Distribution] [Final Avg Cluster Distribution]
+    Row 1: [Energy] [Pressure] [Bonds]
+    Row 2: [Particle Counts] [Number of Topologies] [Average Cluster Size]
+    Row 3: [Largest Cluster] [Final Largest Distribution] [Final Fraction Distribution]
+    Row 4: [Final Avg Cluster Distribution] [Fraction Bound] [Cumulative Reactions]
     """
     print("\nGenerating ensemble observable plots...")
     
@@ -1378,11 +1384,11 @@ def plot_ensemble_observables(
         return None
     
     # ==========================================================================
-    # Row 1: Bonds, Energy, Pressure
+    # Thermodynamics / bonds (grid cells assigned explicitly per block below)
     # ==========================================================================
-    
+
     # Plot 1: Bonds
-    ax = axes[0, 0]
+    ax = axes[0, 2]
     if 'bonds_mean' in stats:
         if _ensemble_plot_with_band(ax, times_us, stats['bonds_mean'], stats['bonds_std'],
                                     'tab:blue', n_replicas, get_all_data('bonds'),
@@ -1396,7 +1402,7 @@ def plot_ensemble_observables(
     ax.grid(True, alpha=0.3)
     
     # Plot 2: Energy
-    ax = axes[0, 1]
+    ax = axes[0, 0]
     if 'energy_mean' in stats:
         if _ensemble_plot_with_band(ax, times_us, stats['energy_mean'], stats['energy_std'],
                                     'tab:red', n_replicas, get_all_data('energy'),
@@ -1410,7 +1416,7 @@ def plot_ensemble_observables(
     ax.grid(True, alpha=0.3)
     
     # Plot 3: Pressure
-    ax = axes[0, 2]
+    ax = axes[0, 1]
     if 'pressure_mean' in stats:
         if _ensemble_plot_with_band(ax, times_us, stats['pressure_mean'], stats['pressure_std'],
                                     'tab:green', n_replicas, get_all_data('pressure'),
@@ -1424,11 +1430,11 @@ def plot_ensemble_observables(
     ax.grid(True, alpha=0.3)
     
     # ==========================================================================
-    # Row 2: Cluster Count, Largest Cluster, Fraction Bound
+    # Cluster-count / largest-cluster / fraction-bound kinetics
     # ==========================================================================
-    
+
     # Plot 4: Cluster Count
-    ax = axes[1, 0]
+    ax = axes[1, 1]
     if 'n_clusters_mean' in stats:
         if _ensemble_plot_with_band(ax, times_us, stats['n_clusters_mean'], stats['n_clusters_std'],
                                     'tab:purple', n_replicas, get_all_data('n_clusters'),
@@ -1442,7 +1448,7 @@ def plot_ensemble_observables(
     ax.grid(True, alpha=0.3)
     
     # Plot 5: Largest Cluster
-    ax = axes[1, 1]
+    ax = axes[2, 0]
     if 'largest_cluster_mean' in stats:
         if _ensemble_plot_with_band(ax, times_us, stats['largest_cluster_mean'], stats['largest_cluster_std'],
                                     'tab:orange', n_replicas, get_all_data('largest_cluster'),
@@ -1456,7 +1462,7 @@ def plot_ensemble_observables(
     ax.grid(True, alpha=0.3)
     
     # Plot 6: Fraction Bound
-    ax = axes[1, 2]
+    ax = axes[3, 1]
     if 'fraction_bound_mean' in stats:
         if _ensemble_plot_with_band(ax, times_us, stats['fraction_bound_mean'], stats['fraction_bound_std'],
                                     'tab:cyan', n_replicas, get_all_data('fraction_bound'),
@@ -1471,11 +1477,11 @@ def plot_ensemble_observables(
     ax.grid(True, alpha=0.3)
     
     # ==========================================================================
-    # Row 3: Particle Counts, Cumulative Reactions, Average Cluster Size
+    # Particle counts / cumulative reactions / average cluster size
     # ==========================================================================
-    
+
     # Plot 7: Particle Counts
-    ax = axes[2, 0]
+    ax = axes[1, 0]
     particle_colors = {'qt': 'blue', 'ft': 'red', 'qtc': 'darkblue', 'ftc': 'darkred'}
     particle_labels = {'qt': 'Qt (free)', 'ft': 'Ft (free)', 'qtc': 'QtC', 'ftc': 'FtC'}
     has_particle_data = False
@@ -1499,8 +1505,8 @@ def plot_ensemble_observables(
     ax.set_title("Particle Counts", fontsize=FONTSIZE_TITLE, fontweight='bold')
     ax.grid(True, alpha=0.3)
     
-    # Plot 8: Cumulative Reactions (NEW)
-    ax = axes[2, 1]
+    # Plot 8: Cumulative Reactions
+    ax = axes[3, 2]
     if 'cumulative_reactions_mean' in stats:
         if _ensemble_plot_with_band(ax, times_us, stats['cumulative_reactions_mean'], 
                                     stats['cumulative_reactions_std'],
@@ -1514,8 +1520,8 @@ def plot_ensemble_observables(
     ax.set_title("Cumulative Reactions", fontsize=FONTSIZE_TITLE, fontweight='bold')
     ax.grid(True, alpha=0.3)
     
-    # Plot 9: Average Cluster Size (NEW)
-    ax = axes[2, 2]
+    # Plot 9: Average Cluster Size
+    ax = axes[1, 2]
     if 'avg_cluster_mean' in stats:
         if _ensemble_plot_with_band(ax, times_us, stats['avg_cluster_mean'], stats['avg_cluster_std'],
                                     'tab:olive', n_replicas, get_all_data('avg_cluster'),
@@ -1529,11 +1535,11 @@ def plot_ensemble_observables(
     ax.grid(True, alpha=0.3)
     
     # ==========================================================================
-    # Row 4: Final Distributions
+    # Final-frame distributions
     # ==========================================================================
-    
+
     # Plot 10: Final largest cluster distribution
-    ax = axes[3, 0]
+    ax = axes[2, 1]
     final_largest = None
     if structural is not None and 'final_largest_values' in structural:
         final_largest = structural['final_largest_values']
@@ -1554,7 +1560,7 @@ def plot_ensemble_observables(
     ax.grid(True, alpha=0.3)
     
     # Plot 11: Final fraction bound distribution
-    ax = axes[3, 1]
+    ax = axes[2, 2]
     final_fraction = None
     if structural is not None and 'final_fraction_bound_values' in structural:
         final_fraction = structural['final_fraction_bound_values']
@@ -1576,7 +1582,7 @@ def plot_ensemble_observables(
     ax.grid(True, alpha=0.3)
     
     # Plot 12: Final average cluster size distribution
-    ax = axes[3, 2]
+    ax = axes[3, 0]
     final_avg = None
     if structural is not None and 'final_avg_cluster_values' in structural:
         final_avg = structural['final_avg_cluster_values']
@@ -1646,11 +1652,11 @@ def plot_ensemble_structural(
     fig : matplotlib.Figure
         The figure object
     
-    Plot Layout (3×3)
-    -----------------
-    Row 1: [Mean Rg] [Qt Coordination] [Ft Coordination]
-    Row 2: [NN Distance] [Final Rg Distribution] [Final Coordination Distribution]
-    Row 3: [Composition Distribution] [Mean Composition Over Time] [Composition vs Size]
+    Plot Layout (3×3, last cell blank)
+    ----------------------------------
+    Row 1: [Mean Rg] [Coordination (Qt & Ft)] [NN Distance]
+    Row 2: [Final Rg Distribution] [Final Coordination Distribution] [Composition Distribution]
+    Row 3: [Mean Composition Over Time] [Composition vs Size] [blank]
     """
     print("\nGenerating structural ensemble plots...")
     
@@ -1703,42 +1709,36 @@ def plot_ensemble_structural(
     ax.set_title("Mean Radius of Gyration", fontsize=FONTSIZE_TITLE, fontweight='bold')
     ax.grid(True, alpha=0.3)
     
-    # Plot 2: Qt Coordination
+    # Plot 2: Coordination Number (Qt & Ft fused into one axes)
     ax = axes[0, 1]
-    times, mean, std, all_data = get_structural_time_series(
+    t_qt, m_qt, s_qt, all_qt = get_structural_time_series(
         'contacts_times', 'mean_coord_qt_mean', 'mean_coord_qt_std', 'mean_coord_qt_all')
-    if times is not None and mean is not None:
-        if _ensemble_plot_with_band(ax, times, mean, std, 'tab:red', n_replicas,
-                                    all_data, show_individual, individual_alpha):
-            ax.legend(loc='lower right', fontsize=FONTSIZE_LEGEND)
-    else:
-        _ensemble_show_no_data(ax)
-    ax.set_xlabel(time_label, fontsize=FONTSIZE_LABEL)
-    ax.set_ylabel("Mean Coordination", fontsize=FONTSIZE_LABEL)
-    ax.set_title("Qt Coordination Number", fontsize=FONTSIZE_TITLE, fontweight='bold')
-    ax.grid(True, alpha=0.3)
-    
-    # Plot 3: Ft Coordination
-    ax = axes[0, 2]
-    times, mean, std, all_data = get_structural_time_series(
+    t_ft, m_ft, s_ft, all_ft = get_structural_time_series(
         'contacts_times', 'mean_coord_ft_mean', 'mean_coord_ft_std', 'mean_coord_ft_all')
-    if times is not None and mean is not None:
-        if _ensemble_plot_with_band(ax, times, mean, std, 'tab:green', n_replicas,
-                                    all_data, show_individual, individual_alpha):
-            ax.legend(loc='lower right', fontsize=FONTSIZE_LEGEND)
+    coord_plotted = False
+    if t_qt is not None and m_qt is not None:
+        coord_plotted |= _ensemble_plot_with_band(
+            ax, t_qt, m_qt, s_qt, 'tab:blue', n_replicas,
+            all_qt, show_individual, individual_alpha, label='Qt')
+    if t_ft is not None and m_ft is not None:
+        coord_plotted |= _ensemble_plot_with_band(
+            ax, t_ft, m_ft, s_ft, 'tab:red', n_replicas,
+            all_ft, show_individual, individual_alpha, label='Ft')
+    if coord_plotted:
+        ax.legend(loc='lower right', fontsize=FONTSIZE_LEGEND)
     else:
         _ensemble_show_no_data(ax)
     ax.set_xlabel(time_label, fontsize=FONTSIZE_LABEL)
     ax.set_ylabel("Mean Coordination", fontsize=FONTSIZE_LABEL)
-    ax.set_title("Ft Coordination Number", fontsize=FONTSIZE_TITLE, fontweight='bold')
+    ax.set_title("Coordination Number", fontsize=FONTSIZE_TITLE, fontweight='bold')
     ax.grid(True, alpha=0.3)
-    
+
     # ==========================================================================
     # Row 2: Spatial and Distributions
     # ==========================================================================
-    
-    # Plot 4: NN Distance
-    ax = axes[1, 0]
+
+    # Plot 3: NN Distance
+    ax = axes[0, 2]
     times, mean, std, all_data = get_structural_time_series(
         'spatial_times', 'mean_nn_dist_mean', 'mean_nn_dist_std', 'mean_nn_dist_all')
     if times is not None and mean is not None:
@@ -1752,8 +1752,8 @@ def plot_ensemble_structural(
     ax.set_title("Inter-Cluster NN Distance", fontsize=FONTSIZE_TITLE, fontweight='bold')
     ax.grid(True, alpha=0.3)
     
-    # Plot 5: Final Rg distribution
-    ax = axes[1, 1]
+    # Plot 4: Final Rg distribution
+    ax = axes[1, 0]
     if 'final_rg_values' in structural:
         final_rg = structural['final_rg_values']
         if len(final_rg) > 0:
@@ -1771,8 +1771,8 @@ def plot_ensemble_structural(
     ax.set_title("Final Mean Rg Distribution", fontsize=FONTSIZE_TITLE, fontweight='bold')
     ax.grid(True, alpha=0.3)
     
-    # Plot 6: Final coordination distribution
-    ax = axes[1, 2]
+    # Plot 5: Final coordination distribution
+    ax = axes[1, 1]
     has_coord_data = False
     if 'final_coord_qt_values' in structural:
         final_coord_qt = structural['final_coord_qt_values']
@@ -1796,11 +1796,11 @@ def plot_ensemble_structural(
     ax.grid(True, alpha=0.3)
     
     # ==========================================================================
-    # Row 3: Composition Analysis (NEW)
+    # Row 3: Composition Analysis
     # ==========================================================================
-    
-    # Plot 7: Composition distribution (final)
-    ax = axes[2, 0]
+
+    # Plot 6: Composition distribution (final)
+    ax = axes[1, 2]
     if 'final_composition_values' in structural:
         final_comp = structural['final_composition_values']
         if len(final_comp) > 0:
@@ -1820,8 +1820,8 @@ def plot_ensemble_structural(
     ax.set_title("Composition Distribution (Final)", fontsize=FONTSIZE_TITLE, fontweight='bold')
     ax.grid(True, alpha=0.3)
     
-    # Plot 8: Mean composition over time
-    ax = axes[2, 1]
+    # Plot 7: Mean composition over time
+    ax = axes[2, 0]
     times, mean, std, all_data = get_structural_time_series(
         'composition_times', 'mean_composition_mean', 'mean_composition_std', 'mean_composition_all')
     if times is not None and mean is not None:
@@ -1837,8 +1837,8 @@ def plot_ensemble_structural(
     ax.set_title("Mean Cluster Composition", fontsize=FONTSIZE_TITLE, fontweight='bold')
     ax.grid(True, alpha=0.3)
     
-    # Plot 9: Composition vs cluster size (scatter from final frame)
-    ax = axes[2, 2]
+    # Plot 8: Composition vs cluster size (scatter from final frame)
+    ax = axes[2, 1]
     if 'composition_vs_size_fractions' in structural and 'composition_vs_size_sizes' in structural:
         fractions = structural['composition_vs_size_fractions']
         sizes = structural['composition_vs_size_sizes']
@@ -1867,15 +1867,18 @@ def plot_ensemble_structural(
     ax.set_ylim([0, 1])
     ax.set_title("Composition vs Cluster Size", fontsize=FONTSIZE_TITLE, fontweight='bold')
     ax.grid(True, alpha=0.3)
-    
+
+    # Coordination fused into one axes freed the last grid cell
+    axes[2, 2].axis('off')
+
     plt.tight_layout()
-    
+
     if save_path:
         fig.savefig(save_path, format='svg', bbox_inches='tight', dpi=300)
         print(f"✓ Saved plot to {save_path}")
-    
+
     plt.show()
-    
+
     return fig
 
 
@@ -2506,10 +2509,9 @@ def plot_comparison_structural(
     """
     Plot structural analysis comparison across ensembles.
     
-    Creates a 3×3 grid of time-series comparing structural metrics:
-    - Row 1: Qt Coordination, Ft Coordination, Mean Cluster Composition
-    - Row 2: Inter-Cluster NN Distance, Intra-Cluster NN Distance, Mean Rg
-    - Row 3: Normalized Rg (Compactness), [empty], [empty]
+    Creates a 2×3 grid of time-series comparing structural metrics:
+    - Row 1: Coordination (Qt & Ft), Mean Cluster Composition, Inter-Cluster NN Distance
+    - Row 2: Intra-Cluster NN Distance, Mean Rg, Normalized Rg (Compactness)
     
     Parameters
     ----------
@@ -2524,13 +2526,13 @@ def plot_comparison_structural(
     -------
     matplotlib.Figure
     """
-    fig = plt.figure(figsize=(18, 16))
-    gs = fig.add_gridspec(3, 3, hspace=0.35, wspace=0.3)
-    
+    fig = plt.figure(figsize=(18, 11))
+    gs = fig.add_gridspec(2, 3, hspace=0.35, wspace=0.3)
+
     n_ensembles = comparison['n_ensembles']
     show_bands = _get_show_bands_default(n_ensembles, show_bands)
     labels = comparison['labels']
-    
+
     def plot_structural_timeseries(ax, time_key, mean_key, std_key, ylabel, title,
                                    legend_loc='best'):
         """Plot a structural time-series from ens['structural'] data."""
@@ -2574,58 +2576,94 @@ def plot_comparison_structural(
         ax.tick_params(labelsize=FONTSIZE_TICK)
         if has_data:
             ax.legend(loc=legend_loc, fontsize=FONTSIZE_LEGEND)
-    
+
+    def plot_coord_fused(ax, legend_loc='lower right'):
+        """Overlay Qt (solid) and Ft (dashed) coordination per ensemble in one axes."""
+        from matplotlib.lines import Line2D
+        has_data = False
+        for i, label in enumerate(labels):
+            ens = comparison['ensembles'][label]
+            structural = ens.get('structural', {})
+            if 'contacts_times' not in structural:
+                continue
+
+            times_steps = np.asarray(structural['contacts_times'])
+            timestep = ens.get('timestep', 0.001)
+            times_us = _steps_to_us(times_steps, timestep)
+            color = COMPARISON_COLORS[i % len(COMPARISON_COLORS)]
+
+            for mean_key, std_key, ls in (
+                ('mean_coord_qt_mean', 'mean_coord_qt_std', '-'),
+                ('mean_coord_ft_mean', 'mean_coord_ft_std', '--'),
+            ):
+                if mean_key not in structural:
+                    continue
+                mean_vals = np.asarray(structural[mean_key])
+                std_vals = np.asarray(structural.get(std_key, np.zeros_like(mean_vals)))
+                min_len = min(len(times_us), len(mean_vals))
+                t = times_us[:min_len]
+                m = mean_vals[:min_len]
+                s = std_vals[:min_len]
+                # Only the solid (Qt) line carries the ensemble label
+                lbl = label if ls == '-' else '_nolegend_'
+                ax.plot(t, m, color=color, linewidth=2, linestyle=ls, label=lbl)
+                if show_bands:
+                    ax.fill_between(t, m - s, m + s, color=color, alpha=0.2)
+                has_data = True
+
+        if not has_data:
+            ax.text(0.5, 0.5, "No data available", ha='center', va='center',
+                   transform=ax.transAxes, fontsize=FONTSIZE_TITLE, color='gray')
+
+        ax.set_xlabel("Time (µs)", fontsize=FONTSIZE_LABEL)
+        ax.set_ylabel("Mean Coordination", fontsize=FONTSIZE_LABEL)
+        ax.set_title("Coordination Number", fontsize=FONTSIZE_TITLE, fontweight='bold')
+        ax.grid(True, alpha=0.3)
+        ax.tick_params(labelsize=FONTSIZE_TICK)
+        if has_data:
+            # Ensemble colours (solid lines) + a linestyle key (Qt solid / Ft dashed)
+            ens_handles, ens_labels = ax.get_legend_handles_labels()
+            style_handles = [
+                Line2D([0], [0], color='black', linestyle='-', linewidth=2),
+                Line2D([0], [0], color='black', linestyle='--', linewidth=2),
+            ]
+            ax.legend(ens_handles + style_handles, ens_labels + ['Qt', 'Ft'],
+                      loc=legend_loc, fontsize=FONTSIZE_LEGEND)
+
     # ======================================================================
-    # Row 1: Qt Coordination, Ft Coordination, Mean Composition
+    # Row 1: Coordination (Qt & Ft), Mean Composition, Inter-Cluster NN
     # ======================================================================
     ax1 = fig.add_subplot(gs[0, 0])
-    plot_structural_timeseries(
-        ax1, 'contacts_times', 'mean_coord_qt_mean', 'mean_coord_qt_std',
-        'Mean Coordination', 'Qt Coordination Number', legend_loc='lower right')
-    
+    plot_coord_fused(ax1, legend_loc='lower right')
+
     ax2 = fig.add_subplot(gs[0, 1])
     plot_structural_timeseries(
-        ax2, 'contacts_times', 'mean_coord_ft_mean', 'mean_coord_ft_std',
-        'Mean Coordination', 'Ft Coordination Number', legend_loc='lower right')
-    
+        ax2, 'composition_times', 'mean_composition_mean', 'mean_composition_std',
+        'Mean Qt Fraction', 'Mean Cluster Composition', legend_loc='lower right')
+
     ax3 = fig.add_subplot(gs[0, 2])
     plot_structural_timeseries(
-        ax3, 'composition_times', 'mean_composition_mean', 'mean_composition_std',
-        'Mean Qt Fraction', 'Mean Cluster Composition', legend_loc='lower right')
-    
+        ax3, 'spatial_times', 'mean_nn_dist_mean', 'mean_nn_dist_std',
+        'Inter-Cluster NN Dist (nm)', 'Inter-Cluster NN Distance')
+
     # ======================================================================
-    # Row 2: Inter-Cluster NN, Intra-Cluster NN, Mean Rg
+    # Row 2: Intra-Cluster NN, Mean Rg, Normalized Rg
     # ======================================================================
     ax4 = fig.add_subplot(gs[1, 0])
     plot_structural_timeseries(
-        ax4, 'spatial_times', 'mean_nn_dist_mean', 'mean_nn_dist_std',
-        'Inter-Cluster NN Dist (nm)', 'Inter-Cluster NN Distance')
-    
+        ax4, 'spatial_times', 'mean_intra_nn_dist_mean', 'mean_intra_nn_dist_std',
+        'Intra-Cluster NN Dist (nm)', 'Intra-Cluster NN Distance')
+
     ax5 = fig.add_subplot(gs[1, 1])
     plot_structural_timeseries(
-        ax5, 'spatial_times', 'mean_intra_nn_dist_mean', 'mean_intra_nn_dist_std',
-        'Intra-Cluster NN Dist (nm)', 'Intra-Cluster NN Distance')
-    
+        ax5, 'morphology_times', 'mean_rg_mean', 'mean_rg_std',
+        'Mean Rg (nm)', 'Mean Radius of Gyration', legend_loc='upper left')
+
     ax6 = fig.add_subplot(gs[1, 2])
     plot_structural_timeseries(
-        ax6, 'morphology_times', 'mean_rg_mean', 'mean_rg_std',
-        'Mean Rg (nm)', 'Mean Radius of Gyration', legend_loc='upper left')
-    
-    # ======================================================================
-    # Row 3: Normalized Rg, [empty], [empty]
-    # ======================================================================
-    ax7 = fig.add_subplot(gs[2, 0])
-    plot_structural_timeseries(
-        ax7, 'morphology_times', 'mean_rg_normalized_mean', 'mean_rg_normalized_std',
+        ax6, 'morphology_times', 'mean_rg_normalized_mean', 'mean_rg_normalized_std',
         'Rg / Rg_sphere', 'Normalized Rg (Compactness)', legend_loc='lower right')
-    
-    # Hide empty panels
-    ax8 = fig.add_subplot(gs[2, 1])
-    ax8.axis('off')
-    
-    ax9 = fig.add_subplot(gs[2, 2])
-    ax9.axis('off')
-    
+
     plt.tight_layout()
     
     if save_path:
