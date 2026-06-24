@@ -37,6 +37,15 @@ particles come within `binding_radius`, at rate `kon`:
 | `grow_FtC_Qt_QtFt_Cluster` | `FtC + Qt → FtC–QtC`              | cluster captures a free Qt |
 | `merge_QtC_FtC_QtFt_Cluster`| `QtC + FtC → QtC–FtC`            | two clusters merge         |
 
+**Monovalent Ft (`topology.ft_monovalent`, default `False`).** ReaDDy has no built-in bond cap;
+valence is governed purely by which particle types appear as reactants. In both `seed` and
+`grow_QtC_Ft` the particle that becomes `FtC` is a *free* Ft gaining its first bond, whereas
+`grow_FtC_Qt` and `merge_QtC_FtC` are the only reactions that give an already-bonded `FtC` a
+*second* bond. Setting `ft_monovalent=True` skips those two reactions, so `FtC` is terminal and
+every Ft forms **at most one bond**. Clusters then become **single-Qt stars** (one multivalent Qt
+hub + N monovalent Ft leaves): two clusters never merge, and a free Qt joins only by seeding with
+a free Ft. Qt stays multivalent. Default `False` reproduces the original multivalent model.
+
 **Potentials.**
 - **Pairwise Lennard-Jones** for excluded volume, registered for all 10 type pairs.
   `potential_type="WCA"` → purely repulsive (cutoff `2^(1/6)·σ`); `"LJ"` → full attractive
@@ -163,6 +172,7 @@ values — see the footnote.
 | `topology.binding_radius` | reaction capture distance | nm | 27.25 (≈ r_Qt+r_Ft+buffer) |
 | `topology.kon` | binding rate | nm³/(ns·part) | 0.001 |
 | `topology.k_bond` | harmonic bond stiffness | kJ/(mol·nm²) | 10.0 |
+| `topology.ft_monovalent` | cap Ft at one bond → single-Qt-star clusters (see §1) | – | `False` |
 | `lj.epsilon_QtQt/FtFt/QtFt` | well depths for the three free pairs | kJ/mol | 1.5 / 1.5 / 3.0 |
 | `lj.potential_type` | `"WCA"` (repulsive) or `"LJ"` (attractive) | – | `LJ` for production |
 | `box_size` | cubic box edge | nm | (500, 500, 500) |
@@ -339,6 +349,10 @@ Example — `600Qt_50Ft_LJ_eQQ1.5_eFF1.5_eQF3_kon0.001_dt50ps_100us`:
 600 Qt + 50 Ft, full LJ potential, ε(QtQt)=1.5 / ε(FtFt)=1.5 / ε(QtFt)=3.0 kJ/mol,
 binding rate kon=0.001, 50 ps timestep, 100 µs total.
 
+When `topology.ft_monovalent=True`, a `_FtMono` suffix is appended (e.g.
+`…_dt50ps_100us_FtMono`) so monovalent and multivalent runs at otherwise-identical parameters
+don't collide on disk. The suffix is absent by default, so existing names are unchanged.
+
 ---
 
 ## 11. Gotchas
@@ -382,6 +396,11 @@ here rather than silently fixed (see `CODE_REVIEW.md` for IDs and history):
 - **Cluster bond graphs are spanning trees.** Every reaction adds exactly one bond and never closes
   a ring, so clusters are acyclic (`n_bonds = n_particles − 1`); coordination numbers from the bond
   graph reflect that tree, not true spatial contact coordination.
+- **(P6) Monovalent Ft is a leaf-only model.** With `topology.ft_monovalent=True`, an Ft can hold
+  exactly one bond, so it can never bridge two Qt and two clusters can never merge. Every cluster is
+  therefore a single-Qt star (one Qt + N Ft leaves), and a free Qt can only enter a cluster by
+  seeding a new one with a free Ft — it cannot attach to an existing cluster. This is the intended
+  physical model for monovalent ferritin, not a bug. Default `False` keeps Ft fully multivalent.
 
 ---
 

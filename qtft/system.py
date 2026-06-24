@@ -198,7 +198,10 @@ def _add_topologies(system: readdy.ReactionDiffusionSystem, config: SimulationCo
         print(f"✓ Topology '{topo.name}': bonds configured, reactions DISABLED (equilibration mode)")
         return
     
-    # Spatial reactions for binding
+    # Spatial reactions for binding. seed and grow_QtC_Ft always apply: in both, the
+    # particle that ends up as FtC is a *free* Ft gaining its first bond, so Ft stays
+    # monovalent. grow_FtC_Qt and merge_QtC_FtC are the only reactions where an
+    # already-bonded FtC gains a second bond, so they are skipped when ft_monovalent.
     reactions = [
         # Seeding: Qt + Ft -> QtC--FtC
         (f"seed_{topo.name}",
@@ -206,22 +209,26 @@ def _add_topologies(system: readdy.ReactionDiffusionSystem, config: SimulationCo
         # Growth: QtC + Ft -> QtC--FtC
         (f"grow_QtC_Ft_{topo.name}",
          f"{topo.name}({qtc}) + {topo.name}({ft}) -> {topo.name}({qtc}--{ftc})"),
-        # Growth: FtC + Qt -> FtC--QtC
-        (f"grow_FtC_Qt_{topo.name}",
-         f"{topo.name}({ftc}) + {topo.name}({qt}) -> {topo.name}({ftc}--{qtc})"),
-        # Merging: QtC + FtC -> QtC--FtC
-        (f"merge_QtC_FtC_{topo.name}",
-         f"{topo.name}({qtc}) + {topo.name}({ftc}) -> {topo.name}({qtc}--{ftc})"),
     ]
-    
+    if not topo.ft_monovalent:
+        reactions += [
+            # Growth: FtC + Qt -> FtC--QtC
+            (f"grow_FtC_Qt_{topo.name}",
+             f"{topo.name}({ftc}) + {topo.name}({qt}) -> {topo.name}({ftc}--{qtc})"),
+            # Merging: QtC + FtC -> QtC--FtC
+            (f"merge_QtC_FtC_{topo.name}",
+             f"{topo.name}({qtc}) + {topo.name}({ftc}) -> {topo.name}({qtc}--{ftc})"),
+        ]
+
     for name, descriptor in reactions:
         system.topologies.add_spatial_reaction(
             f"{name}: {descriptor}",
             rate=float(topo.kon),
             radius=float(topo.binding_radius)
         )
-    
+
     print(f"✓ Topology '{topo.name}': binding_radius={topo.binding_radius} nm, "
-          f"kon={topo.kon}, k_bond={topo.k_bond}")
+          f"kon={topo.kon}, k_bond={topo.k_bond}, ft_monovalent={topo.ft_monovalent} "
+          f"({len(reactions)} spatial reactions)")
 
 

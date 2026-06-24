@@ -104,11 +104,17 @@ class TopologyConfig:
         Binding rate constant (nm³/(ns·particles))
     k_bond : float
         Harmonic bond force constant (kJ/(mol·nm²))
+    ft_monovalent : bool
+        If True, Ft can form at most one bond (monovalent leaf). The two reactions
+        that would give an already-bonded Ft (FtC) a second bond — grow_FtC_Qt and
+        merge_QtC_FtC — are not registered, so clusters become single-Qt stars
+        (one Qt hub + N monovalent Ft leaves). Default False = fully multivalent.
     """
     name: str = "QtFt_Cluster"
     binding_radius: float = 1.5
     kon: float = 10.0
     k_bond: float = 20.0
+    ft_monovalent: bool = False
     
     def __post_init__(self):
         self._validate()
@@ -539,6 +545,7 @@ class SimulationConfig:
                 binding_radius=topo_params.get("binding_radius", 1.5),
                 kon=topo_params.get("kon", 10.0),
                 k_bond=topo_params.get("k_bond", 20.0),
+                ft_monovalent=topo_params.get("ft_monovalent", False),
             )
             
             lj = LennardJonesConfig(
@@ -576,6 +583,7 @@ class SimulationConfig:
                 binding_radius=params.get("binding_radius", 1.5),
                 kon=params.get("kon", 10.0),
                 k_bond=params.get("k_bond", 20.0),
+                ft_monovalent=params.get("ft_monovalent", False),
             )
             
             lj = LennardJonesConfig(
@@ -648,6 +656,7 @@ class SimulationConfig:
                 "binding_radius": self.topology.binding_radius,
                 "kon": self.topology.kon,
                 "k_bond": self.topology.k_bond,
+                "ft_monovalent": self.topology.ft_monovalent,
             },
             # Nested LJ config (resolved values, not None)
             "lj": {
@@ -708,6 +717,7 @@ class SimulationConfig:
             "binding_radius": self.topology.binding_radius,
             "kon": self.topology.kon,
             "k_bond": self.topology.k_bond,
+            "ft_monovalent": self.topology.ft_monovalent,
             "equilibrium_bond_length": self.equilibrium_bond_length,
             # LJ parameters
             "epsilon_QtQt": self.lj.epsilon_QtQt,
@@ -922,9 +932,13 @@ def format_param_string(config: "SimulationConfig") -> str:
     total_us = config.total_simulation_time_us
     time_str = f"{total_us:.0f}us" if total_us >= 1 else f"{total_us:.2f}us"
 
+    # Additive tag so monovalent-Ft runs don't collide with multivalent ones on disk.
+    # Off by default => suffix absent => existing folder/file names are unchanged.
+    mono_str = "_FtMono" if config.topology.ft_monovalent else ""
+
     return (
         f"{config.n_qt}Qt_{config.n_ft}Ft_"
-        f"{lj.potential_type}_{eqq}_{eff}_{eqf}_{kon_str}_{dt_str}_{time_str}"
+        f"{lj.potential_type}_{eqq}_{eff}_{eqf}_{kon_str}_{dt_str}_{time_str}{mono_str}"
     )
 
 
