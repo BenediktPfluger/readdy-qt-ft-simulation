@@ -2818,10 +2818,10 @@ def plot_comparison_summary(
     plot_timeseries(ax4, 'n_clusters', 'Count', 'Individual Topologies')
     
     ax5 = fig.add_subplot(gs[1, 1])
-    plot_timeseries(ax5, 'avg_cluster', 'Particles', 'Average Cluster Size')
+    plot_timeseries(ax5, 'avg_cluster', 'Particles', 'Average Cluster Size', legend_loc='upper left')
     
     ax6 = fig.add_subplot(gs[1, 2])
-    plot_timeseries(ax6, 'largest_cluster', 'Particles', 'Largest Cluster')
+    plot_timeseries(ax6, 'largest_cluster', 'Particles', 'Largest Cluster', legend_loc='upper left')
     
     # ======================================================================
     # Row 3: Free Particles, Complexed Particles, Fraction Bound

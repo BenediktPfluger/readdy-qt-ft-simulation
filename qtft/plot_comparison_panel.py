@@ -225,9 +225,9 @@ def plot_comparison_panel(
     plot_stat(fig.add_subplot(gs[1, 0]), 'n_clusters', "Number of Individual Topologies",
               "Number of Individual Topologies", legend_loc='upper right')
     plot_stat(fig.add_subplot(gs[1, 1]), 'avg_cluster', "Average Size (particles)",
-              "Average Cluster Size", legend_loc='lower right')
+              "Average Cluster Size", legend_loc='upper left')
     plot_stat(fig.add_subplot(gs[1, 2]), 'largest_cluster', "Cluster Size (particles)",
-              "Largest Cluster Size", legend_loc='lower right')
+              "Largest Cluster Size", legend_loc='upper left')
 
     # ======================================================================
     # Row 3: Coordination Number, Mean Cluster Composition, Mean Radius of Gyration
