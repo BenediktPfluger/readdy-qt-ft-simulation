@@ -213,9 +213,9 @@ def plot_comparison_panel(
     # Row 1: Energy, Pressure, Number of Bonds
     # ======================================================================
     plot_stat(fig.add_subplot(gs[0, 0]), 'energy', "Energy (kJ/mol)", "Potential Energy",
-              legend_loc='upper right')
+              legend_loc='lower left')
     plot_stat(fig.add_subplot(gs[0, 1]), 'pressure', "Pressure (kJ/(mol·nm³))", "Pressure",
-              legend_loc='upper right')
+              legend_loc='upper left')
     plot_stat(fig.add_subplot(gs[0, 2]), 'bonds', "Number of Bonds", "Number of Bonds",
               legend_loc='lower right')
 

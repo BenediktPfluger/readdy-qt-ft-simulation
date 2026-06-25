@@ -2803,10 +2803,10 @@ def plot_comparison_summary(
     # Row 1: Energy, Pressure, Bonds
     # ======================================================================
     ax1 = fig.add_subplot(gs[0, 0])
-    plot_timeseries(ax1, 'energy', 'Energy (kJ/mol)', 'Potential Energy', legend_loc='lower right')
+    plot_timeseries(ax1, 'energy', 'Energy (kJ/mol)', 'Potential Energy', legend_loc='lower left')
     
     ax2 = fig.add_subplot(gs[0, 1])
-    plot_timeseries(ax2, 'pressure', 'Pressure (kJ/(mol·nm³))', 'Pressure', legend_loc='lower right')
+    plot_timeseries(ax2, 'pressure', 'Pressure (kJ/(mol·nm³))', 'Pressure', legend_loc='upper left')
     
     ax3 = fig.add_subplot(gs[0, 2])
     plot_timeseries(ax3, 'bonds', 'Number of Bonds', 'Bonds', legend_loc='lower right')
