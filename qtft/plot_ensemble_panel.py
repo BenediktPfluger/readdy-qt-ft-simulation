@@ -118,7 +118,7 @@ def plot_ensemble_panel(
     # Row 1: Energy, Pressure, Number of Bonds
     # ======================================================================
     simple_band(axes[0, 0], 'energy_mean', 'energy_std', 'tab:red',
-                "Total Energy", "Energy (kJ/mol)", legend_loc='upper right')
+                "Potential Energy", "Energy (kJ/mol)", legend_loc='upper right')
     simple_band(axes[0, 1], 'pressure_mean', 'pressure_std', 'tab:green',
                 "Pressure", "Pressure (kJ/mol/nm³)", legend_loc='upper right')
     simple_band(axes[0, 2], 'bonds_mean', 'bonds_std', 'tab:blue',

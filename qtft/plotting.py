@@ -790,7 +790,7 @@ def _plot_energy(ax, traj, time_label, timestep: float) -> Optional[Dict]:
         energy = np.array(energy)
         
         ax.plot(times, energy, color="tab:red", linewidth=1.5)
-        ax.set_title("Total Energy", fontsize=FONTSIZE_TITLE, fontweight="bold")
+        ax.set_title("Potential Energy", fontsize=FONTSIZE_TITLE, fontweight="bold")
         ax.set_xlabel(time_label, fontsize=FONTSIZE_LABEL)
         ax.set_ylabel("Energy (kJ/mol)", fontsize=FONTSIZE_LABEL)
         ax.grid(True, alpha=0.3)
@@ -1412,7 +1412,7 @@ def plot_ensemble_observables(
         _ensemble_show_no_data(ax)
     ax.set_xlabel(time_label, fontsize=FONTSIZE_LABEL)
     ax.set_ylabel("Energy (kJ/mol)", fontsize=FONTSIZE_LABEL)
-    ax.set_title("Total Energy", fontsize=FONTSIZE_TITLE, fontweight='bold')
+    ax.set_title("Potential Energy", fontsize=FONTSIZE_TITLE, fontweight='bold')
     ax.grid(True, alpha=0.3)
     
     # Plot 3: Pressure
@@ -2803,7 +2803,7 @@ def plot_comparison_summary(
     # Row 1: Energy, Pressure, Bonds
     # ======================================================================
     ax1 = fig.add_subplot(gs[0, 0])
-    plot_timeseries(ax1, 'energy', 'Energy (kJ/mol)', 'Total Energy', legend_loc='lower right')
+    plot_timeseries(ax1, 'energy', 'Energy (kJ/mol)', 'Potential Energy', legend_loc='lower right')
     
     ax2 = fig.add_subplot(gs[0, 1])
     plot_timeseries(ax2, 'pressure', 'Pressure (kJ/(mol·nm³))', 'Pressure', legend_loc='lower right')

@@ -8,7 +8,7 @@ ensemble). It reuses the comparison drawing conventions/constants from ``qtft.pl
 (so the existing public plotting functions stay untouched).
 
 Layout (3x3):
-    Row 1: Total Energy          | Pressure                        | Number of Bonds
+    Row 1: Potential Energy      | Pressure                        | Number of Bonds
     Row 2: Individual Topologies | Average Cluster Size            | Largest Cluster Size
     Row 3: Coordination Number   | Mean Cluster Composition         | Mean Radius of Gyration
 
@@ -212,7 +212,7 @@ def plot_comparison_panel(
     # ======================================================================
     # Row 1: Energy, Pressure, Number of Bonds
     # ======================================================================
-    plot_stat(fig.add_subplot(gs[0, 0]), 'energy', "Energy (kJ/mol)", "Total Energy",
+    plot_stat(fig.add_subplot(gs[0, 0]), 'energy', "Energy (kJ/mol)", "Potential Energy",
               legend_loc='upper right')
     plot_stat(fig.add_subplot(gs[0, 1]), 'pressure', "Pressure (kJ/(mol·nm³))", "Pressure",
               legend_loc='upper right')
