@@ -313,7 +313,8 @@ This (re)writes `ensemble_statistics.json` and `ensemble_structural.npz`.
 Load aggregated results for plotting with
 `stats, structural, config = analysis.load_ensemble_data("<ensemble_dir>")` and summarize with
 `analysis.print_ensemble_summary(stats, config)`. For a numeric final-state table (mean ± SD,
-exportable to CSV/LaTeX) use `analysis.build_final_state_table(stats, config)` for one ensemble
+exportable to CSV/LaTeX) use `analysis.build_final_state_table(stats, config, structural)` for one
+ensemble (pass `structural` to include the radius-of-gyration and Qt-fraction composition rows)
 or `comparison.build_comparison_table(comparison)` across ensembles, then
 `analysis.save_table_files(df, "<path_base>", caption=..., label=...)`.
 

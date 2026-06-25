@@ -1839,22 +1839,27 @@ def _fmt_mean_std(mean: float, std: float, decimals: int = 1) -> str:
     return f"{mean:.{decimals}f} ± {std:.{decimals}f}"
 
 
-def _final_state_rows(stats: Dict, config: Optional[Dict] = None) -> List[Tuple[str, str, str]]:
+def _final_state_rows(stats: Dict, config: Optional[Dict] = None,
+                      structural: Optional[Dict] = None) -> List[Tuple[str, str, str]]:
     """
     Build the (Metric, Value, Unit) rows for a single ensemble's final state.
 
     Aggregation metrics come from the final value of the ensemble time-series arrays
-    (``{key}_mean[-1]`` ± ``{key}_std[-1]``); kinetics/percolation come from the
-    pre-computed ``stats['summary']`` dict. Missing metrics are silently skipped.
+    (``{key}_mean[-1]`` ± ``{key}_std[-1]``); kinetics come from the pre-computed
+    ``stats['summary']`` dict; morphology (radius of gyration) and composition (Qt fraction)
+    come from the final value of the ``structural`` time-series arrays. Missing metrics are
+    silently skipped.
 
     Returns a list of ``(metric, value_string, unit)`` tuples (shared by the
     single-ensemble and comparison tables).
     """
     rows: List[Tuple[str, str, str]] = []
 
-    def final_pair(key):
-        mean = stats.get(f"{key}_mean")
-        std = stats.get(f"{key}_std")
+    def final_pair(key, source=stats):
+        if source is None:
+            return None
+        mean = source.get(f"{key}_mean")
+        std = source.get(f"{key}_std")
         if mean is None or std is None or len(mean) == 0:
             return None
         return float(np.asarray(mean)[-1]), float(np.asarray(std)[-1])
@@ -1888,26 +1893,27 @@ def _final_state_rows(stats: Dict, config: Optional[Dict] = None) -> List[Tuple[
     if fbound:
         rows.append(("Fraction bound", _fmt_mean_std(*fbound, 3), "—"))
 
-    # --- Kinetics & percolation (from the summary dict) ---
+    # --- Kinetics (from the summary dict) ---
     m = stats.get("summary", {}) or {}
     if "half_time_mean" in m:
         rows.append(("Half-time t₅₀",
                      _fmt_mean_std(m["half_time_mean"] * NS_TO_US,
                                    m.get("half_time_std", 0.0) * NS_TO_US, 2), "µs"))
-    if "percolation_count" in m:
-        n_rep = m.get("n_replicas", stats.get("n_replicas", "?"))
-        frac = m.get("percolation_fraction", 0.0) * 100.0
-        rows.append(("Replicas percolated",
-                     f"{m['percolation_count']}/{n_rep} ({frac:.0f}%)", "—"))
-    if "percolation_time_mean" in m:
-        rows.append(("Percolation time",
-                     _fmt_mean_std(m["percolation_time_mean"] * NS_TO_US,
-                                   m.get("percolation_time_std", 0.0) * NS_TO_US, 2), "µs"))
+
+    # --- Morphology & composition (from the structural dict) ---
+    rg = final_pair("mean_rg", structural)
+    if rg:
+        rows.append(("Radius of gyration", _fmt_mean_std(*rg, 1), "nm"))
+
+    comp = final_pair("mean_composition", structural)
+    if comp:
+        rows.append(("Qt fraction (QtC/(QtC+FtC))", _fmt_mean_std(*comp, 3), "—"))
 
     return rows
 
 
-def build_final_state_table(stats: Dict, config: Optional[Dict] = None):
+def build_final_state_table(stats: Dict, config: Optional[Dict] = None,
+                            structural: Optional[Dict] = None):
     """
     Build a final-state summary table for a single ensemble.
 
@@ -1919,17 +1925,20 @@ def build_final_state_table(stats: Dict, config: Optional[Dict] = None):
     config : dict, optional
         Configuration dictionary; used for the largest-cluster fraction
         (``n_qt`` + ``n_ft``).
+    structural : dict, optional
+        Structural statistics (from ``ensemble_structural.npz`` / ``load_ensemble_data``);
+        supplies the radius-of-gyration and Qt-fraction composition rows. Omit to skip them.
 
     Returns
     -------
     pandas.DataFrame
         Indexed by ``Metric`` with columns ``["Value", "Unit"]``, where ``Value`` is a
         formatted ``"mean ± SD"`` string. Rows: final-state aggregation metrics followed by
-        kinetics & percolation metrics.
+        kinetics, morphology and composition metrics.
     """
     import pandas as pd
 
-    rows = _final_state_rows(stats, config)
+    rows = _final_state_rows(stats, config, structural)
     df = pd.DataFrame(rows, columns=["Metric", "Value", "Unit"]).set_index("Metric")
     return df
 

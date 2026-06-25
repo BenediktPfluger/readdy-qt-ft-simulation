@@ -448,17 +448,18 @@ def build_comparison_table(comparison: dict):
     """
     Build a final-state comparison table across ensembles.
 
-    Rows are metrics (final-state aggregation followed by kinetics & percolation, with units
-    appended to the metric name); columns are the ensemble labels. Each cell is a formatted
-    ``"mean ± SD"`` string. Reuses the same per-ensemble row builder as the single-ensemble
-    table (``qtft.analysis._final_state_rows``) so formatting and metric definitions stay
-    identical.
+    Rows are metrics (final-state aggregation followed by kinetics, morphology and composition,
+    with units appended to the metric name); columns are the ensemble labels. Each cell is a
+    formatted ``"mean ± SD"`` string. Reuses the same per-ensemble row builder as the
+    single-ensemble table (``qtft.analysis._final_state_rows``) so formatting and metric
+    definitions stay identical.
 
     Parameters
     ----------
     comparison : dict
         Comparison data structure from :func:`compare_ensembles` (each ensemble must carry
-        ``stats`` with the ``{key}_mean``/``{key}_std`` series and a ``summary`` sub-dict).
+        ``stats`` with the ``{key}_mean``/``{key}_std`` series and a ``summary`` sub-dict, plus
+        an optional ``structural`` dict for the morphology/composition rows).
 
     Returns
     -------
@@ -479,7 +480,7 @@ def build_comparison_table(comparison: dict):
 
     for label in comparison["labels"]:
         ens = comparison["ensembles"][label]
-        rows = _final_state_rows(ens.get("stats", {}), ens.get("config"))
+        rows = _final_state_rows(ens.get("stats", {}), ens.get("config"), ens.get("structural"))
         col = {}
         for metric, value, unit in rows:
             name = metric_name(metric, unit)
