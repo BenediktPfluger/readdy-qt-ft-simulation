@@ -163,6 +163,184 @@ def _analyze_replica_structural_worker(args) -> Dict:
     return result
 
 
+# =============================================================================
+# PHASED (agglomeration<->deagglomeration) replica helpers
+# =============================================================================
+# A phased replica writes one trajectory per phase under its replica directory, each
+# with step indices restarting at 0. These helpers read those per-phase files and
+# concatenate the observables onto one continuous step axis (offsetting by the cumulative
+# steps of prior phases) so the existing ensemble aggregation works unchanged.
+
+def _concat_obs_dicts(entries: List[Optional[Dict]]) -> Optional[Dict]:
+    """Concatenate a list of per-phase observable dicts (or None) into one dict.
+
+    Every dict must share the same keys, each mapping to an array aligned along axis 0
+    (1D series, or 2D like particle counts). Returns None if the list is empty or any
+    phase is missing the observable.
+    """
+    if not entries or any(e is None for e in entries):
+        return None
+    keys = entries[0].keys()
+    return {k: np.concatenate([np.asarray(e[k]) for e in entries], axis=0) for k in keys}
+
+
+def _collect_phased_replica(config: SimulationConfig) -> Dict[str, Optional[Dict]]:
+    """Read and stitch the per-replica time-series observables for a phased run.
+
+    Returns a dict with the same entries collect_results stores per replica
+    (bonds, energy, pressure, particle_counts, cluster_stats, kinetics, reaction_counts),
+    each concatenated across phases with continuous (offset) step axes. Cumulative
+    reaction counts are made monotonic across phases by carrying the running total.
+    """
+    files = config.phase_output_files
+    offsets = config.phase_step_offsets
+
+    parts: Dict[str, List[Optional[Dict]]] = {
+        'bonds': [], 'energy': [], 'pressure': [], 'particle_counts': [],
+        'cluster_stats': [], 'kinetics': [], 'reaction_counts': [],
+    }
+    reaction_carry = 0.0
+
+    for f, off in zip(files, offsets):
+        traj = readdy.Trajectory(f)
+
+        bc = get_bond_counts(f, trajectory=traj, silent=True)
+        parts['bonds'].append({'times': np.asarray(bc['times']) + off,
+                               'n_bonds': np.asarray(bc['n_bonds'])})
+
+        try:
+            te, e = traj.read_observable_energy()
+            parts['energy'].append({'times': np.asarray(te) + off, 'energy': np.asarray(e)})
+        except (KeyError, ValueError, IndexError):
+            parts['energy'].append(None)
+
+        try:
+            tp, p = traj.read_observable_pressure()
+            parts['pressure'].append({'times': np.asarray(tp) + off, 'pressure': np.asarray(p)})
+        except (KeyError, ValueError, IndexError):
+            parts['pressure'].append(None)
+
+        try:
+            tc, counts = traj.read_observable_number_of_particles()
+            parts['particle_counts'].append({'times': np.asarray(tc) + off,
+                                             'counts': np.asarray(counts)})
+        except (KeyError, ValueError, IndexError):
+            parts['particle_counts'].append(None)
+
+        try:
+            cs = get_cluster_statistics(f, trajectory=traj)
+            parts['cluster_stats'].append({'times': np.asarray(cs['times']) + off,
+                                           'n_clusters': np.asarray(cs['n_clusters']),
+                                           'max_sizes': np.asarray(cs['max_sizes']),
+                                           'avg_sizes': np.asarray(cs['avg_sizes'])})
+        except (KeyError, ValueError, IndexError):
+            parts['cluster_stats'].append(None)
+
+        try:
+            kin = get_binding_kinetics(f, config, trajectory=traj)
+            parts['kinetics'].append({'times': np.asarray(kin['times']) + off,
+                                      'fraction_bound_qt': np.asarray(kin['fraction_bound_qt']),
+                                      'fraction_bound_ft': np.asarray(kin['fraction_bound_ft'])})
+        except (KeyError, ValueError, IndexError):
+            parts['kinetics'].append(None)
+
+        try:
+            tr, counts_dict = traj.read_observable_reaction_counts()
+            tr = np.asarray(tr)
+            total = np.zeros(len(tr))
+
+            def extract_series(obj):
+                if isinstance(obj, dict):
+                    for v in obj.values():
+                        yield from extract_series(v)
+                else:
+                    yield np.asarray(obj).flatten()
+
+            for series in extract_series(counts_dict):
+                if len(series) == len(tr):
+                    total += np.cumsum(series)
+            # Continue the cumulative count across the phase boundary.
+            total = total + reaction_carry
+            reaction_carry = float(total[-1]) if len(total) else reaction_carry
+            parts['reaction_counts'].append({'times': tr + off, 'cumulative': total})
+        except (KeyError, ValueError, IndexError):
+            parts['reaction_counts'].append(None)
+
+    return {k: _concat_obs_dicts(v) for k, v in parts.items()}
+
+
+def _concat_metric_dict(dicts: List[Optional[Dict]], offsets: List[int]) -> Optional[Dict]:
+    """Concatenate per-phase structural metric dicts (morphology/spatial/...).
+
+    Each dict has a 'times' array (step numbers) plus equal-length value arrays. 'times'
+    is offset per phase; other array fields are concatenated; non-array fields are taken
+    from the first phase. Returns None if any phase is missing the metric.
+    """
+    if not dicts or any(d is None for d in dicts):
+        return None
+    out: Dict[str, Any] = {}
+    n_time = len(np.asarray(dicts[0]['times']))
+
+    def _is_per_frame_series(val):
+        # A per-frame series has one entry per time point. Scalars (incl. 0-d arrays)
+        # and arrays/lists of a different length are not concatenated.
+        if isinstance(val, np.ndarray):
+            return val.ndim >= 1 and val.shape[0] == n_time
+        if isinstance(val, (list, tuple)):
+            return len(val) == n_time
+        return False
+
+    for key, val in dicts[0].items():
+        if key == 'times':
+            out[key] = np.concatenate([np.asarray(d['times']) + off
+                                       for d, off in zip(dicts, offsets)])
+        elif _is_per_frame_series(val):
+            joined = []
+            for d in dicts:
+                joined.extend(list(d[key]))
+            out[key] = joined if isinstance(val, list) else np.asarray(joined)
+        else:
+            # Scalar / non-time-aligned field: keep the first phase's value.
+            out[key] = val
+    return out
+
+
+def _compute_replica_structural_phased(config: SimulationConfig, stride: int) -> Dict:
+    """Phased version of _compute_replica_structural: per-phase analysis, then stitched."""
+    files = config.phase_output_files
+    offsets = config.phase_step_offsets
+    per_phase = [_compute_replica_structural(f, config, stride) for f in files]
+
+    merged: Dict[str, Any] = {'errors': []}
+    for r in per_phase:
+        merged['errors'].extend(r.get('errors', []))
+    for cat in ('morphology', 'spatial', 'contacts', 'composition'):
+        merged[cat] = _concat_metric_dict([r[cat] for r in per_phase], offsets)
+    return merged
+
+
+def _compute_size_fractions_phased(config: SimulationConfig) -> Dict:
+    """Phased version of get_size_fractions: per-phase size fractions, stitched in time.
+
+    Category names/boundaries are taken from the first phase (the standard size labels are
+    stable across phases); per-category fraction series and the step axis are concatenated.
+    """
+    files = config.phase_output_files
+    offsets = config.phase_step_offsets
+    per = [get_size_fractions(f, config) for f in files]
+    names = per[0]['category_names']
+    times = np.concatenate([np.asarray(p['times']) + off for p, off in zip(per, offsets)])
+    cat_fracs = {
+        n: np.concatenate([np.asarray(p['category_fractions'][n]) for p in per])
+        for n in names
+    }
+    return {
+        'times': times,
+        'category_names': names,
+        'category_fractions': cat_fracs,
+        'boundaries': per[0]['boundaries'],
+    }
+
 
 class EnsembleSimulation:
     """
@@ -715,13 +893,40 @@ echo "Analysis completed at $(date)"
         missing_replicas = []
         
         for i, config in enumerate(self.replica_configs):
+            # Phased replica: stitch per-phase trajectories into one continuous series.
+            if config.phases:
+                expected = config.phase_output_files
+                missing = [f for f in expected if not os.path.exists(f)]
+                if missing:
+                    missing_replicas.append(i)
+                    print(f"  Replica {i}: MISSING phase file(s) {missing}")
+                    continue
+                print(f"  Replica {i}: Loading {len(expected)} phases...")
+                try:
+                    entries = _collect_phased_replica(config)
+                    if entries['bonds'] is None:
+                        raise ValueError("could not read bonds from phase trajectories")
+                    self.replica_data['bonds'].append(entries['bonds'])
+                    self.replica_data['times'].append(entries['bonds']['times'])
+                    self.replica_data['energy'].append(entries['energy'])
+                    self.replica_data['pressure'].append(entries['pressure'])
+                    self.replica_data['particle_counts'].append(entries['particle_counts'])
+                    self.replica_data['cluster_stats'].append(entries['cluster_stats'])
+                    self.replica_data['kinetics'].append(entries['kinetics'])
+                    self.replica_data['reaction_counts'].append(entries['reaction_counts'])
+                    self.replica_data['available_replicas'].append(i)
+                except Exception as e:
+                    print(f"    Error loading phased replica {i}: {e}")
+                    missing_replicas.append(i)
+                continue
+
             h5_file = config.output_file
-            
+
             if not os.path.exists(h5_file):
                 missing_replicas.append(i)
                 print(f"  Replica {i}: MISSING ({h5_file})")
                 continue
-            
+
             print(f"  Replica {i}: Loading...")
             
             try:
@@ -1222,7 +1427,11 @@ echo "Analysis completed at $(date)"
             contacts_data[pos] = res['contacts']
             composition_data[pos] = res['composition']
 
-        if parallel and n_available > 1:
+        # Phased ensembles use a per-phase-stitched structural computation that the
+        # parallel worker does not implement, so run them sequentially.
+        is_phased = any(self.replica_configs[i].phases for i in available)
+
+        if parallel and n_available > 1 and not is_phased:
             from concurrent.futures import ProcessPoolExecutor, as_completed
             from multiprocessing import cpu_count
             if n_workers is None:
@@ -1245,10 +1454,15 @@ echo "Analysis completed at $(date)"
                     tag = "with errors: " + "; ".join(res['errors']) if res['errors'] else "✓"
                     print(f"  Replica {available[pos]}: {tag}")
         else:
+            if parallel and is_phased:
+                print("Phased ensemble: running structural analysis sequentially.")
             for pos, i in enumerate(available):
                 config = self.replica_configs[i]
                 print(f"\n  Replica {i} ({pos + 1}/{n_available}):")
-                res = _compute_replica_structural(config.output_file, config, stride)
+                if config.phases:
+                    res = _compute_replica_structural_phased(config, stride)
+                else:
+                    res = _compute_replica_structural(config.output_file, config, stride)
                 _store(pos, res)
                 for err in res['errors']:
                     print(f"    ✗ {err}")
@@ -1306,9 +1520,11 @@ echo "Analysis completed at $(date)"
         size_fraction_data = []
         for idx, i in enumerate(available):
             config = self.replica_configs[i]
-            h5_file = config.output_file
             try:
-                sf = get_size_fractions(h5_file, config)
+                if config.phases:
+                    sf = _compute_size_fractions_phased(config)
+                else:
+                    sf = get_size_fractions(config.output_file, config)
                 size_fraction_data.append(sf)
             except Exception as e:
                 print(f"    ✗ Size fractions failed for replica {i}: {e}")

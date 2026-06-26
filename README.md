@@ -63,6 +63,24 @@ attractions (LJ via `lj.potential_type`) and the binding reactions. This split i
 `equilibrate_system()` + `run_simulation()`. Set `equilibration_potential="LJ"` to equilibrate
 under the full attractive potential instead.
 
+**Deagglomeration & cycling (`config.phases`).** A run can be split into a sequence of *phases*
+to model an **agglomeration ↔ deagglomeration cycle** (e.g. bind for 50 µs, then dissolve for
+50 µs, repeatably). Each `PhaseConfig` specifies `n_steps` plus the physics for that phase:
+`binding` (spatial binding reactions on/off), `breaking` (bond breaking on/off), and
+`potential_type` (`"LJ"` attractive or `"WCA"` repulsive). Bond breaking uses **structural
+topology dissociation**: a bonded cluster loses one uniformly-random bond at total rate
+`n_edges × topology.koff`, splitting into sub-clusters; a freed monomer is automatically re-typed
+back to its free species (`QtC→Qt`, `FtC→Ft`). A typical cycle is agglomeration (binding on,
+breaking off, `LJ`) then deagglomeration (binding off, breaking on, `WCA` so freed particles
+disperse); build it with `make_agg_deagg_phases(agg_steps, deagg_steps, n_cycles=...)`. Because
+ReaDDy cannot change reactions mid-run, `run_phased()` runs each phase as a separate segment and
+carries state (positions **and** bonds) across phases via ReaDDy checkpoints. Each phase writes its
+own `phase_NNN/trajectory.h5`; analysis stitches them onto one continuous time axis
+(`analysis.load_phased_observables`, `plotting.plot_phased_kinetics`). When `phases` is unset
+(default), behavior and on-disk filenames are exactly as before. Works for single runs and
+ensembles alike (see §6). Single dispatch point: `run_one()` calls `run_phased()` automatically
+when `config.phases` is set.
+
 **Integrator / environment.** EulerBD Brownian-dynamics integrator, Gillespie reactions,
 cubic periodic box, `T = 300 K`.
 
@@ -173,6 +191,8 @@ values — see the footnote.
 | `topology.kon` | binding rate | nm³/(ns·part) | 0.001 |
 | `topology.k_bond` | harmonic bond stiffness | kJ/(mol·nm²) | 10.0 |
 | `topology.ft_monovalent` | cap Ft at one bond → single-Qt-star clusters (see §1) | – | `False` |
+| `topology.koff` | bond-breaking rate per edge (deagglomeration phases only, see §1) | 1/ns | 0.0 |
+| `phases` | optional list of `PhaseConfig` for agglomeration↔deagglomeration cycling (see §1); `None` = single run | – | `None` |
 | `lj.epsilon_QtQt/FtFt/QtFt` | well depths for the three free pairs | kJ/mol | 1.5 / 1.5 / 3.0 |
 | `lj.potential_type` | `"WCA"` (repulsive) or `"LJ"` (attractive) | – | `LJ` for production |
 | `box_size` | cubic box edge | nm | (500, 500, 500) |
@@ -247,6 +267,13 @@ plotting.plot_ensemble_structural(stats, structural, cfg, show_individual=True,
 ```
 
 Reload a finished ensemble with `EnsembleSimulation.load("<ensemble_dir>")`.
+
+**Phased (agglomeration↔deagglomeration) ensembles.** Give `base_config` a `phases` schedule
+(see §1) and run the ensemble exactly as above — replicas inherit cycling because they all run
+through `run_one()`. Each replica then contains `replica_NNN/phase_000/trajectory.h5 …` instead of a
+single `trajectory.h5`, and result collection automatically stitches the phases per replica onto one
+continuous time axis before averaging, so `ensemble_statistics.json` / `ensemble_structural.npz` keep
+the same format (the phase boundaries are identical across replicas).
 
 ---
 
@@ -354,6 +381,13 @@ When `topology.ft_monovalent=True`, a `_FtMono` suffix is appended (e.g.
 `…_dt50ps_100us_FtMono`) so monovalent and multivalent runs at otherwise-identical parameters
 don't collide on disk. The suffix is absent by default, so existing names are unchanged.
 
+When `config.phases` is set (agglomeration↔deagglomeration cycling), a `_phased{N}_koff{koff}`
+suffix is appended (`N` = number of phases) and the `{total_time}us` field reflects the **sum**
+of all phase durations. A phased run's outputs live under a directory derived from the trajectory
+name, with one `phase_NNN/trajectory.h5` per phase (+ a `phase_NNN/checkpoints/` used to hand off
+state to the next phase). The suffix is absent for ordinary single runs, so existing names are
+unchanged.
+
 ---
 
 ## 11. Gotchas
@@ -402,6 +436,14 @@ here rather than silently fixed (see `CODE_REVIEW.md` for IDs and history):
   therefore a single-Qt star (one Qt + N Ft leaves), and a free Qt can only enter a cluster by
   seeding a new one with a free Ft — it cannot attach to an existing cluster. This is the intended
   physical model for monovalent ferritin, not a bug. Default `False` keeps Ft fully multivalent.
+- **(P7) Bond breaking (`koff`) is a mean-field per-edge rate.** Each existing bond breaks at the
+  same rate `koff` regardless of its location in the cluster (interior vs leaf) or local geometry;
+  the broken edge is chosen uniformly at random, not by force or strain. It is a microscopic
+  dissociation rate (1/time), the deagglomeration counterpart of the microscopic `kon` (P4), not a
+  macroscopic off-rate. A freed monomer is re-typed back to its free species essentially instantly
+  (a fast internal cleanup reaction), so it is indistinguishable from an originally-free particle.
+  Note: ReaDDy 2.0.13's built-in `add_topology_dissociation` is bypassed (it is broken in that
+  build); `qtft` registers an equivalent custom structural reaction instead.
 
 ---
 

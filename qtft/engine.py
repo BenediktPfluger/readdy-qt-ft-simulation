@@ -63,10 +63,11 @@ def create_simulation(
     system: readdy.ReactionDiffusionSystem,
     config: SimulationConfig,
     overwrite: bool = True,
+    output_file: Optional[str] = None,
 ) -> readdy.Simulation:
     """
     Create and configure a ReaDDy simulation.
-    
+
     Parameters
     ----------
     system : readdy.ReactionDiffusionSystem
@@ -75,27 +76,32 @@ def create_simulation(
         Simulation configuration
     overwrite : bool
         If True, overwrite existing output file
-    
+    output_file : str, optional
+        Trajectory output path. Defaults to config.output_file. Phased runs pass a
+        per-phase path here so each phase writes its own trajectory.h5.
+
     Returns
     -------
     readdy.Simulation
         Configured simulation ready to run
     """
+    out_file = output_file if output_file is not None else config.output_file
+
     # Handle existing output file
-    if os.path.exists(config.output_file):
+    if os.path.exists(out_file):
         if overwrite:
-            os.remove(config.output_file)
-            print(f"✓ Removed existing file: {config.output_file}")
+            os.remove(out_file)
+            print(f"✓ Removed existing file: {out_file}")
         else:
             raise FileExistsError(
-                f"Output file exists: {config.output_file}. "
+                f"Output file exists: {out_file}. "
                 "Set overwrite=True or choose a different filename."
             )
-    
+
     # Create simulation
     simulation = system.simulation(
         kernel=config.kernel,
-        output_file=config.output_file,
+        output_file=out_file,
         integrator="EulerBDIntegrator",
         reaction_handler="Gillespie",
         evaluate_topology_reactions=True,
@@ -419,6 +425,18 @@ def run_one(
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
 
+    # Phased agglomeration<->deagglomeration cycle: delegate to run_phased so every
+    # caller (single runs, ensemble workers, the run_replica.py CLI) gets cycling for
+    # free, since they all funnel through run_one.
+    if config.phases:
+        return run_phased(
+            config,
+            equilibration_steps=equilibration_steps,
+            skip_equilibration=skip_equilibration,
+            overwrite=overwrite,
+            show_progress=show_progress,
+        )
+
     if skip_equilibration:
         pos_qt, pos_ft = None, None
     else:
@@ -428,3 +446,116 @@ def run_one(
     simulation = create_simulation(system, config, overwrite=overwrite)
     place_particles(simulation, config, positions_qt=pos_qt, positions_ft=pos_ft)
     return run_simulation(simulation, config, show_progress=show_progress)
+
+
+def run_phased(
+    config: SimulationConfig,
+    equilibration_steps: int = 10000,
+    skip_equilibration: bool = False,
+    overwrite: bool = True,
+    show_progress: bool = True,
+) -> list:
+    """Run an agglomeration<->deagglomeration cycle defined by ``config.phases``.
+
+    ReaDDy cannot change its reaction set mid-``run()``, so each phase is a separate
+    simulation segment: the system is rebuilt with that phase's reactions and pair
+    potential (via ``create_system(config, phase=...)``), and state is carried over
+    between phases with ReaDDy checkpoints (which preserve particle positions *and*
+    topology bonds). Phase i writes ``<phase_base_dir>/phase_{i:03d}/trajectory.h5``.
+
+    Parameters
+    ----------
+    config : SimulationConfig
+        Configuration with a non-empty ``phases`` list.
+    equilibration_steps : int
+        Equilibration steps before phase 0 (ignored if skip_equilibration=True).
+    skip_equilibration : bool
+        If True, start phase 0 from random positions.
+    overwrite : bool
+        Overwrite existing per-phase trajectory files.
+    show_progress : bool
+        Print per-phase progress banners.
+
+    Returns
+    -------
+    list of dict
+        One entry per phase with keys: index, name, dir, trajectory, n_steps,
+        step_offset (cumulative steps before this phase, for stitching a continuous
+        time axis), binding, breaking, potential_type.
+    """
+    if not config.phases:
+        raise ValueError("run_phased requires config.phases to be a non-empty list")
+
+    base_dir = config.phase_base_dir
+    os.makedirs(base_dir, exist_ok=True)
+
+    # Equilibrate once (WCA, no reactions) to relax initial overlaps before phase 0.
+    if skip_equilibration:
+        pos_qt, pos_ft = None, None
+    else:
+        pos_qt, pos_ft = equilibrate_system(config, n_steps=equilibration_steps)
+
+    phase_dirs = config.phase_dirs
+    phase_files = config.phase_output_files
+
+    results = []
+    prev_checkpoint_dir = None
+    step_offset = 0
+
+    for i, phase in enumerate(config.phases):
+        phase_dir = phase_dirs[i]
+        os.makedirs(phase_dir, exist_ok=True)
+        checkpoint_dir = os.path.join(phase_dir, "checkpoints")
+        out_file = phase_files[i]
+
+        if show_progress:
+            ph_us = phase.n_steps * config.timestep * 1e-3
+            print(f"\n{'=' * 60}")
+            print(f"PHASE {i + 1}/{len(config.phases)}: {phase.name}")
+            print(f"  {phase.n_steps:,} steps ({ph_us:.1f} µs), "
+                  f"binding={phase.binding}, breaking={phase.breaking}, "
+                  f"potential={phase.potential_type}")
+            print(f"{'=' * 60}\n")
+
+        system = create_system(config, phase=phase)
+        simulation = create_simulation(system, config, overwrite=overwrite, output_file=out_file)
+
+        # Checkpoint at the end of the phase so the next phase can resume from it
+        # (positions + topology bonds). Keep only the latest save.
+        simulation.make_checkpoints(
+            stride=int(phase.n_steps), output_directory=checkpoint_dir, max_n_saves=1
+        )
+
+        if i == 0:
+            place_particles(simulation, config, positions_qt=pos_qt, positions_ft=pos_ft)
+        else:
+            simulation.load_particles_from_latest_checkpoint(prev_checkpoint_dir)
+            print(f"✓ Loaded state (positions + bonds) from {prev_checkpoint_dir}")
+
+        simulation.run(int(phase.n_steps), float(config.timestep))
+
+        if not os.path.exists(out_file):
+            raise RuntimeError(f"Phase {i} output file not created: {out_file}")
+
+        results.append({
+            "index": i,
+            "name": phase.name,
+            "dir": phase_dir,
+            "trajectory": out_file,
+            "n_steps": int(phase.n_steps),
+            "step_offset": step_offset,
+            "binding": phase.binding,
+            "breaking": phase.breaking,
+            "potential_type": phase.potential_type,
+        })
+        step_offset += int(phase.n_steps)
+        prev_checkpoint_dir = checkpoint_dir
+
+    if show_progress:
+        print(f"\n{'=' * 60}")
+        print("PHASED RUN COMPLETE")
+        print(f"  {len(results)} phases, {step_offset:,} total steps -> "
+              f"{step_offset * config.timestep * 1e-3:.1f} µs")
+        print(f"{'=' * 60}\n")
+
+    return results

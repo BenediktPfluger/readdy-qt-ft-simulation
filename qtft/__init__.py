@@ -17,6 +17,8 @@ from .config import (
     ParticleConfig,
     TopologyConfig,
     LennardJonesConfig,
+    PhaseConfig,
+    make_agg_deagg_phases,
     SimulationConfig,
     format_param_string,
 )
@@ -27,6 +29,7 @@ from .engine import (
     run_simulation,
     equilibrate_system,
     run_one,
+    run_phased,
 )
 from .ensemble import EnsembleSimulation
 
@@ -36,6 +39,8 @@ __all__ = [
     "ParticleConfig",
     "TopologyConfig",
     "LennardJonesConfig",
+    "PhaseConfig",
+    "make_agg_deagg_phases",
     "SimulationConfig",
     "format_param_string",
     "create_system",
@@ -44,5 +49,6 @@ __all__ = [
     "run_simulation",
     "equilibrate_system",
     "run_one",
+    "run_phased",
     "EnsembleSimulation",
 ]

@@ -846,6 +846,98 @@ def get_binding_kinetics(
 
 
 
+def load_phased_observables(
+    config: SimulationConfig,
+    phase_files: Optional[List[str]] = None,
+    smoothing_window: int = 10,
+) -> Dict[str, Any]:
+    """Stitch per-phase trajectories onto one continuous time axis.
+
+    A phased agglomeration<->deagglomeration run (see engine.run_phased) writes one
+    trajectory per phase, each with step indices restarting at 0. This loads them in
+    order, offsets each phase's steps by the cumulative steps of the prior phases
+    (config.phase_step_offsets), converts to µs, and concatenates the bond, cluster, and
+    binding-kinetics series so they can be plotted/analyzed as a single continuous cycle.
+
+    This is matplotlib-free and is reused by both single-run plotting and the ensemble
+    per-replica collection.
+
+    Parameters
+    ----------
+    config : SimulationConfig
+        Must have a non-empty ``phases`` list.
+    phase_files : list of str, optional
+        Per-phase trajectory paths in order. Defaults to ``config.phase_output_files``
+        (pass explicitly for ensemble replicas whose files live under a replica dir).
+    smoothing_window : int
+        Forwarded to get_binding_kinetics.
+
+    Returns
+    -------
+    dict with keys:
+        time_us : ndarray              -- continuous µs axis for bonds & clusters
+        n_bonds, n_clusters, avg_sizes, max_sizes : ndarray (aligned to time_us)
+        kin_time_us : ndarray          -- continuous µs axis for binding kinetics
+        fraction_bound_qt, fraction_bound_ft : ndarray (aligned to kin_time_us)
+        phase_boundaries_us : list     -- µs positions of the internal phase switches
+        phase_starts_us : list         -- µs start time of each phase
+        phase_names : list             -- phase labels in order
+        total_time_us : float
+    """
+    if not config.phases:
+        raise ValueError("load_phased_observables requires config.phases to be set")
+
+    files = phase_files if phase_files is not None else config.phase_output_files
+    offsets = config.phase_step_offsets
+    if len(files) != len(offsets):
+        raise ValueError(
+            f"Expected {len(offsets)} phase files, got {len(files)}"
+        )
+    ts = config.timestep
+
+    bonds_t, bonds_v = [], []
+    clus_t, clus_n, clus_avg, clus_max = [], [], [], []
+    kin_t, kin_fbq, kin_fbf = [], [], []
+
+    for f, off in zip(files, offsets):
+        traj = readdy.Trajectory(f)
+        bc = get_bond_counts(f, trajectory=traj, silent=True)
+        cs = get_cluster_statistics(f, trajectory=traj)
+        kin = get_binding_kinetics(f, config, trajectory=traj, smoothing_window=smoothing_window)
+
+        bonds_t.append(np.asarray(bc["times"]) + off)
+        bonds_v.append(np.asarray(bc["n_bonds"]))
+
+        clus_t.append(np.asarray(cs["times"]) + off)
+        clus_n.append(np.asarray(cs["n_clusters"]))
+        clus_avg.append(np.asarray(cs["avg_sizes"]))
+        clus_max.append(np.asarray(cs["max_sizes"]))
+
+        kin_t.append(np.asarray(kin["times"]) + off)
+        kin_fbq.append(np.asarray(kin["fraction_bound_qt"]))
+        kin_fbf.append(np.asarray(kin["fraction_bound_ft"]))
+
+    # Internal phase switches (start of each phase after the first) and per-phase starts.
+    boundaries_us = list(_steps_to_us(np.asarray(offsets[1:]), ts)) if len(offsets) > 1 else []
+    starts_us = list(_steps_to_us(np.asarray(offsets), ts))
+
+    return {
+        "time_us": _steps_to_us(np.concatenate(bonds_t), ts),
+        "n_bonds": np.concatenate(bonds_v),
+        "cluster_time_us": _steps_to_us(np.concatenate(clus_t), ts),
+        "n_clusters": np.concatenate(clus_n),
+        "avg_sizes": np.concatenate(clus_avg),
+        "max_sizes": np.concatenate(clus_max),
+        "kin_time_us": _steps_to_us(np.concatenate(kin_t), ts),
+        "fraction_bound_qt": np.concatenate(kin_fbq),
+        "fraction_bound_ft": np.concatenate(kin_fbf),
+        "phase_boundaries_us": boundaries_us,
+        "phase_starts_us": starts_us,
+        "phase_names": [p.name for p in config.phases],
+        "total_time_us": config.total_simulation_time_us,
+    }
+
+
 def get_spatial_distribution(
     h5_file: str,
     config: SimulationConfig,

@@ -82,7 +82,12 @@ Examples:
     print(f"\nOutput file: {config.output_file}")
     print(f"RNG seed: {config.rng_seed}")
     print(f"Particles: {config.n_qt} Qt + {config.n_ft} Ft")
-    print(f"Steps: {config.n_steps}")
+    if config.phases:
+        print(f"Phases: {len(config.phases)} "
+              f"({', '.join(p.name for p in config.phases)}); "
+              f"total steps: {config.effective_n_steps}")
+    else:
+        print(f"Steps: {config.n_steps}")
 
     # Run the full single-replica pipeline (output dir, equilibration, build,
     # place, production) via the shared run_one() entry point.
@@ -106,16 +111,21 @@ Examples:
     print("\n" + "=" * 60)
     print("SIMULATION COMPLETE")
     print("=" * 60)
-    print(f"Output: {config.output_file}")
     print(f"Elapsed time: {elapsed/60:.1f} minutes")
     print("=" * 60)
 
-    # Verify output file was created
-    if os.path.exists(config.output_file):
-        size_mb = os.path.getsize(config.output_file) / (1024 * 1024)
-        print(f"✓ Output file created ({size_mb:.1f} MB)")
-    else:
-        print("Warning: Output file was not created!")
+    # Verify output file(s) were created. Phased runs write one trajectory per phase
+    # (config.output_file itself is never written), so check the per-phase files.
+    expected_files = config.phase_output_files if config.phases else [config.output_file]
+    all_ok = True
+    for f in expected_files:
+        if os.path.exists(f):
+            size_mb = os.path.getsize(f) / (1024 * 1024)
+            print(f"✓ Output file created: {f} ({size_mb:.1f} MB)")
+        else:
+            print(f"Warning: Output file was not created: {f}")
+            all_ok = False
+    if not all_ok:
         sys.exit(1)
 
 

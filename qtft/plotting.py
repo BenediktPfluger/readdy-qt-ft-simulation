@@ -50,6 +50,7 @@ from .analysis import (
     get_cluster_composition,
     get_size_fractions,
     compute_structural_analysis,
+    load_phased_observables,
     _extract_frame_data,
     _get_size_categories,
     _get_size_category_boundaries,
@@ -2844,12 +2845,98 @@ def plot_comparison_summary(
     
     ax9 = fig.add_subplot(gs[2, 2])
     plot_timeseries(ax9, 'fraction_bound', 'Fraction', 'Fraction Bound')
-    
+
     plt.tight_layout()
     fig.subplots_adjust(bottom=0.08)
-    
+
     if save_path:
         fig.savefig(save_path, bbox_inches='tight', dpi=150)
         print(f"✓ Saved: {save_path}")
-    
+
+    return fig
+
+
+def _mark_phase_boundaries(ax, boundaries_us, starts_us=None, names=None):
+    """Draw vertical lines at phase switches and (optionally) label each phase span."""
+    for b in boundaries_us:
+        ax.axvline(b, color="0.4", linestyle="--", linewidth=1.0, zorder=1)
+    if starts_us is not None and names is not None:
+        ylim = ax.get_ylim()
+        ytext = ylim[1] - 0.04 * (ylim[1] - ylim[0])
+        ends = list(starts_us[1:]) + [ax.get_xlim()[1]]
+        for name, s, e in zip(names, starts_us, ends):
+            ax.text(0.5 * (s + e), ytext, name, ha="center", va="top",
+                    fontsize=9, color="0.3",
+                    bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="0.7", alpha=0.7))
+
+
+def plot_phased_kinetics(
+    config: "SimulationConfig",
+    phase_files: Optional[List[str]] = None,
+    save_path: Optional[str] = None,
+    figsize: Tuple[float, float] = (11, 9),
+    data: Optional[Dict[str, Any]] = None,
+):
+    """Plot a stitched agglomeration<->deagglomeration cycle on one continuous time axis.
+
+    Loads the per-phase trajectories via analysis.load_phased_observables (unless
+    pre-stitched ``data`` is supplied, e.g. ensemble means) and draws bonds, fraction
+    bound, and average cluster size vs µs, with dashed lines and labels at the phase
+    boundaries.
+
+    Parameters
+    ----------
+    config : SimulationConfig
+        Phased configuration (must have config.phases set).
+    phase_files : list of str, optional
+        Per-phase trajectory paths; defaults to config.phase_output_files.
+    save_path : str, optional
+        If given, save the figure here.
+    figsize : tuple
+        Figure size.
+    data : dict, optional
+        Pre-computed stitched series (same schema as load_phased_observables). When given,
+        phase_files is ignored and the data is plotted directly (used for ensemble means).
+    """
+    if data is None:
+        data = load_phased_observables(config, phase_files=phase_files)
+
+    bnd = data["phase_boundaries_us"]
+    starts = data["phase_starts_us"]
+    names = data["phase_names"]
+
+    fig, axes = plt.subplots(3, 1, figsize=figsize, sharex=True)
+
+    # 1) Bonds
+    ax = axes[0]
+    ax.plot(data["time_us"], data["n_bonds"], color="C0", lw=1.5)
+    ax.set_ylabel("Number of bonds")
+    ax.set_title("Agglomeration / deagglomeration cycle")
+    ax.grid(True, alpha=0.3)
+    _mark_phase_boundaries(ax, bnd, starts, names)
+
+    # 2) Fraction bound
+    ax = axes[1]
+    ax.plot(data["kin_time_us"], data["fraction_bound_qt"], color="C1", lw=1.5, label="Qt")
+    ax.plot(data["kin_time_us"], data["fraction_bound_ft"], color="C2", lw=1.5, label="Ft")
+    ax.set_ylabel("Fraction bound")
+    ax.set_ylim(-0.05, 1.05)
+    ax.legend(loc="center left")
+    ax.grid(True, alpha=0.3)
+    _mark_phase_boundaries(ax, bnd)
+
+    # 3) Average cluster size
+    ax = axes[2]
+    ax.plot(data["cluster_time_us"], data["avg_sizes"], color="C3", lw=1.5)
+    ax.set_ylabel("Avg cluster size")
+    ax.set_xlabel("Time (µs)")
+    ax.grid(True, alpha=0.3)
+    _mark_phase_boundaries(ax, bnd)
+
+    plt.tight_layout()
+
+    if save_path:
+        fig.savefig(save_path, bbox_inches="tight", dpi=150)
+        print(f"✓ Saved: {save_path}")
+
     return fig

@@ -109,16 +109,22 @@ class TopologyConfig:
         that would give an already-bonded Ft (FtC) a second bond — grow_FtC_Qt and
         merge_QtC_FtC — are not registered, so clusters become single-Qt stars
         (one Qt hub + N monovalent Ft leaves). Default False = fully multivalent.
+    koff : float
+        Bond-breaking (dissociation) rate per edge, used only in deagglomeration
+        phases (see SimulationConfig.phases). A topology with n_edges bonds breaks an
+        edge at total rate n_edges * koff, possibly splitting into sub-clusters. 0
+        (default) means no breaking, i.e. pure agglomeration as before.
     """
     name: str = "QtFt_Cluster"
     binding_radius: float = 1.5
     kon: float = 10.0
     k_bond: float = 20.0
     ft_monovalent: bool = False
-    
+    koff: float = 0.0
+
     def __post_init__(self):
         self._validate()
-    
+
     def _validate(self):
         if self.binding_radius <= 0:
             raise ValueError(f"Binding radius must be positive: {self.binding_radius}")
@@ -126,6 +132,104 @@ class TopologyConfig:
             raise ValueError(f"Binding rate must be positive: {self.kon}")
         if self.k_bond <= 0:
             raise ValueError(f"Bond constant must be positive: {self.k_bond}")
+        if self.koff < 0:
+            raise ValueError(f"Bond-breaking rate must be non-negative: {self.koff}")
+
+
+@dataclass
+class PhaseConfig:
+    """One phase of an agglomeration/deagglomeration cycle.
+
+    A SimulationConfig with a non-empty ``phases`` list runs each phase in order as a
+    separate ReaDDy segment (state carried over via checkpoints), rebuilding the system
+    with that phase's reactions and pair potential. The physics of each phase is fully
+    explicit here so the config stays the single source of truth.
+
+    Parameters
+    ----------
+    name : str
+        Human label for the phase, e.g. "agglomerate" / "deagglomerate".
+    n_steps : int
+        Number of integration steps in this phase.
+    binding : bool
+        Register the spatial binding reactions (seed/grow/merge) for this phase.
+    breaking : bool
+        Register bond breaking for this phase: the built-in topology dissociation
+        (rate n_edges * topology.koff) plus a cleanup reaction that re-types freed
+        monomers (QtC->Qt, FtC->Ft). Requires topology.koff > 0 to have any effect.
+    potential_type : str
+        Pair potential during this phase: "LJ" (attractive) or "WCA" (purely
+        repulsive). Deagglomeration typically uses "WCA" so freed particles disperse.
+    """
+    name: str
+    n_steps: int
+    binding: bool = True
+    breaking: bool = False
+    potential_type: str = "LJ"
+
+    def __post_init__(self):
+        if self.n_steps <= 0:
+            raise ValueError(f"Phase '{self.name}' n_steps must be positive: {self.n_steps}")
+        if self.potential_type not in ("WCA", "LJ"):
+            raise ValueError(
+                f"Phase '{self.name}' potential_type must be 'WCA' or 'LJ', got: {self.potential_type}"
+            )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "n_steps": self.n_steps,
+            "binding": self.binding,
+            "breaking": self.breaking,
+            "potential_type": self.potential_type,
+        }
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "PhaseConfig":
+        return cls(
+            name=d.get("name", "phase"),
+            n_steps=int(d["n_steps"]),
+            binding=bool(d.get("binding", True)),
+            breaking=bool(d.get("breaking", False)),
+            potential_type=d.get("potential_type", "LJ"),
+        )
+
+
+def make_agg_deagg_phases(
+    agg_steps: int,
+    deagg_steps: int,
+    n_cycles: int = 1,
+    agg_potential: str = "LJ",
+    deagg_potential: str = "WCA",
+) -> List["PhaseConfig"]:
+    """Build a standard agglomeration<->deagglomeration phase schedule.
+
+    Each cycle is an agglomeration phase (binding on, breaking off, attractive LJ)
+    followed by a deagglomeration phase (binding off, breaking on, repulsive WCA).
+    Assign the result to ``SimulationConfig.phases`` and set ``topology.koff > 0``.
+
+    Parameters
+    ----------
+    agg_steps, deagg_steps : int
+        Steps per agglomeration / deagglomeration phase.
+    n_cycles : int
+        Number of agg->deagg cycles (default 1 => two phases).
+    agg_potential, deagg_potential : str
+        Pair potential for each phase type ("LJ" or "WCA").
+    """
+    if n_cycles < 1:
+        raise ValueError(f"n_cycles must be >= 1, got {n_cycles}")
+    phases: List[PhaseConfig] = []
+    for _ in range(n_cycles):
+        phases.append(PhaseConfig(
+            name="agglomerate", n_steps=agg_steps,
+            binding=True, breaking=False, potential_type=agg_potential,
+        ))
+        phases.append(PhaseConfig(
+            name="deagglomerate", n_steps=deagg_steps,
+            binding=False, breaking=True, potential_type=deagg_potential,
+        ))
+    return phases
 
 
 @dataclass
@@ -387,7 +491,13 @@ class SimulationConfig:
     
     # Output
     output_file: Optional[str] = None  # None = auto-generate from parameters
-    
+
+    # Optional agglomeration<->deagglomeration phase schedule. None/empty => a single
+    # ordinary run using n_steps and lj.potential_type (unchanged legacy behavior).
+    # When set, the run executes each phase in order (see engine.run_phased), and
+    # n_steps is ignored in favor of the per-phase step counts.
+    phases: Optional[List[PhaseConfig]] = None
+
     def __post_init__(self):
         # Auto-generate output filename if not specified
         if self.output_file is None:
@@ -438,6 +548,19 @@ class SimulationConfig:
         # Check counts
         if self.n_qt < 0 or self.n_ft < 0:
             raise ValueError(f"Particle counts must be non-negative: n_qt={self.n_qt}, n_ft={self.n_ft}")
+
+        # Phase schedule checks
+        if self.phases:
+            any_breaking = any(p.breaking for p in self.phases)
+            if any_breaking and self.topology.koff <= 0:
+                warnings_list.append(
+                    "Warning: a deagglomeration phase has breaking=True but topology.koff=0, "
+                    "so no bonds will break. Set topology.koff > 0."
+                )
+            if not any(p.binding for p in self.phases):
+                warnings_list.append(
+                    "Warning: no phase has binding=True, so no clusters will ever form."
+                )
         
         # Physics warnings
         r0_bond = self.qt.radius + self.ft.radius
@@ -473,9 +596,65 @@ class SimulationConfig:
         return self.qt.radius + self.ft.radius
     
     @property
+    def effective_n_steps(self) -> int:
+        """Total integration steps actually run.
+
+        Sum of the phase step counts when a phase schedule is set, otherwise n_steps.
+        """
+        if self.phases:
+            return int(sum(p.n_steps for p in self.phases))
+        return int(self.n_steps)
+
+    @property
     def total_simulation_time(self) -> float:
-        """Total simulation time in ns."""
-        return self.n_steps * self.timestep
+        """Total simulation time in ns (across all phases when a schedule is set)."""
+        return self.effective_n_steps * self.timestep
+
+    @property
+    def phase_base_dir(self) -> Optional[str]:
+        """Directory under which per-phase outputs live (None for non-phased runs).
+
+        Derived from ``output_file`` so all consumers (engine, CLI, analysis, ensemble)
+        agree without passing paths around:
+
+        - ensemble replica ``.../replica_000/trajectory.h5`` -> ``.../replica_000``
+          (phase dirs become siblings: ``.../replica_000/phase_000`` ...).
+        - single run ``myrun.h5`` (no directory) -> ``myrun`` (a dedicated run folder).
+        """
+        if not self.phases:
+            return None
+        d = os.path.dirname(self.output_file)
+        if d == "":
+            return os.path.splitext(os.path.basename(self.output_file))[0]
+        return d
+
+    @property
+    def phase_dirs(self) -> List[str]:
+        """Ordered per-phase output directories (empty for non-phased runs)."""
+        if not self.phases:
+            return []
+        base = self.phase_base_dir
+        return [os.path.join(base, f"phase_{i:03d}") for i in range(len(self.phases))]
+
+    @property
+    def phase_output_files(self) -> List[str]:
+        """Ordered per-phase trajectory.h5 paths (empty for non-phased runs)."""
+        return [os.path.join(d, "trajectory.h5") for d in self.phase_dirs]
+
+    @property
+    def phase_step_offsets(self) -> List[int]:
+        """Cumulative step count at the START of each phase (empty for non-phased runs).
+
+        Used to stitch per-phase trajectories (whose step indices restart at 0) onto one
+        continuous step/time axis: global_step = phase_local_step + phase_step_offsets[i].
+        """
+        if not self.phases:
+            return []
+        offsets, cum = [], 0
+        for p in self.phases:
+            offsets.append(cum)
+            cum += int(p.n_steps)
+        return offsets
     
     @property
     def total_simulation_time_us(self) -> float:
@@ -546,6 +725,7 @@ class SimulationConfig:
                 kon=topo_params.get("kon", 10.0),
                 k_bond=topo_params.get("k_bond", 20.0),
                 ft_monovalent=topo_params.get("ft_monovalent", False),
+                koff=topo_params.get("koff", 0.0),
             )
             
             lj = LennardJonesConfig(
@@ -584,6 +764,7 @@ class SimulationConfig:
                 kon=params.get("kon", 10.0),
                 k_bond=params.get("k_bond", 20.0),
                 ft_monovalent=params.get("ft_monovalent", False),
+                koff=params.get("koff", 0.0),
             )
             
             lj = LennardJonesConfig(
@@ -605,7 +786,11 @@ class SimulationConfig:
         box_size = params.get("box_size", (50.0, 50.0, 50.0))
         if isinstance(box_size, list):
             box_size = tuple(box_size)
-        
+
+        # Reconstruct phase schedule if present (list of phase dicts, or None)
+        phases_raw = params.get("phases", None)
+        phases = [PhaseConfig.from_dict(p) for p in phases_raw] if phases_raw else None
+
         # Build SimulationConfig
         return cls(
             qt=qt,
@@ -628,8 +813,9 @@ class SimulationConfig:
             n_threads=params.get("n_threads", 4),
             rng_seed=params.get("rng_seed", 42),
             output_file=params.get("output_file", None),
+            phases=phases,
         )
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """
         Convert configuration to a nested dictionary suitable for JSON serialization.
@@ -657,6 +843,7 @@ class SimulationConfig:
                 "kon": self.topology.kon,
                 "k_bond": self.topology.k_bond,
                 "ft_monovalent": self.topology.ft_monovalent,
+                "koff": self.topology.koff,
             },
             # Nested LJ config (resolved values, not None)
             "lj": {
@@ -690,6 +877,8 @@ class SimulationConfig:
             "n_threads": self.n_threads,
             "rng_seed": self.rng_seed,
             "output_file": self.output_file,
+            # Phase schedule (None when this is a single ordinary run)
+            "phases": [p.to_dict() for p in self.phases] if self.phases else None,
         }
 
     def to_flat_dict(self) -> Dict[str, Any]:
@@ -718,6 +907,7 @@ class SimulationConfig:
             "kon": self.topology.kon,
             "k_bond": self.topology.k_bond,
             "ft_monovalent": self.topology.ft_monovalent,
+            "koff": self.topology.koff,
             "equilibrium_bond_length": self.equilibrium_bond_length,
             # LJ parameters
             "epsilon_QtQt": self.lj.epsilon_QtQt,
@@ -768,6 +958,7 @@ class SimulationConfig:
         print(f"\nTopology:")
         print(f"  Binding radius: {self.topology.binding_radius} nm")
         print(f"  Binding rate (kon): {self.topology.kon} nm³/(ns·part)")
+        print(f"  Bond-breaking rate (koff): {self.topology.koff} /(edge·ns)")
         print(f"  Bond stiffness: {self.topology.k_bond} kJ/(mol·nm²)")
         print(f"  Equilibrium bond length: {self.equilibrium_bond_length} nm")
         print(f"\nLennard-Jones:")
@@ -816,7 +1007,17 @@ class SimulationConfig:
         print(f"  Temperature: {self.temperature} K")
         print(f"  Equilibration potential: {self.equilibration_potential}")
         print(f"  Timestep: {self.timestep} ns ({self.timestep * 1e3:.2f} ps)")
-        print(f"  Steps: {self.n_steps:,} ({self.total_simulation_time_us:.1f} µs total)")
+        if self.phases:
+            print(f"  Phases: {len(self.phases)} "
+                  f"({', '.join(p.name for p in self.phases)})")
+            for p in self.phases:
+                ph_us = p.n_steps * self.timestep * NS_TO_US
+                print(f"    - {p.name}: {p.n_steps:,} steps ({ph_us:.1f} µs), "
+                      f"binding={p.binding}, breaking={p.breaking}, pot={p.potential_type}")
+            print(f"  Total steps: {self.effective_n_steps:,} "
+                  f"({self.total_simulation_time_us:.1f} µs total)")
+        else:
+            print(f"  Steps: {self.n_steps:,} ({self.total_simulation_time_us:.1f} µs total)")
         print(f"  Output: {self.output_file}")
         print("=" * 60)
     
@@ -936,9 +1137,19 @@ def format_param_string(config: "SimulationConfig") -> str:
     # Off by default => suffix absent => existing folder/file names are unchanged.
     mono_str = "_FtMono" if config.topology.ft_monovalent else ""
 
+    # Additive tag for phased agglomeration<->deagglomeration runs. Absent for ordinary
+    # single runs, so existing names are unchanged. Encodes the number of phases and the
+    # bond-breaking rate so cycled runs don't collide with single runs on disk.
+    if config.phases:
+        koff_val = config.topology.koff
+        koff_str = f"{int(koff_val)}" if koff_val == int(koff_val) else f"{koff_val}"
+        phased_str = f"_phased{len(config.phases)}_koff{koff_str}"
+    else:
+        phased_str = ""
+
     return (
         f"{config.n_qt}Qt_{config.n_ft}Ft_"
-        f"{lj.potential_type}_{eqq}_{eff}_{eqf}_{kon_str}_{dt_str}_{time_str}{mono_str}"
+        f"{lj.potential_type}_{eqq}_{eff}_{eqf}_{kon_str}_{dt_str}_{time_str}{mono_str}{phased_str}"
     )
 
 
