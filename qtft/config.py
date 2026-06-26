@@ -1109,23 +1109,31 @@ def format_param_string(config: "SimulationConfig") -> str:
     Single source of truth for the naming convention so the single-run trajectory
     filename and the ensemble folder name can never drift apart.
 
-    Format::
+    Format (ordinary single run)::
 
         {n_qt}Qt_{n_ft}Ft_{potential_type}_eQQ{e}_eFF{e}_eQF{e}_kon{kon}_dt{dt}ps_{total_time}us
 
-    Numbers are formatted without trailing zeros (e.g. kon10, eQQ2.5, dt20ps, 100us).
+    Format (phased agglomeration<->deagglomeration run, config.phases set)::
+
+        {n_qt}Qt_{n_ft}Ft_{POT}_eQQ{e}_eFF{e}_eQF{e}_phases{N}_kon{kon}
+            _aggsteps{A}_koff{koff}_deaggsteps{D}_dt{dt}ps_{total_time}us
+
+    where N = number of phases (= 2*n_cycles for make_agg_deagg_phases; cycles = N/2),
+    A = steps of the first agglomeration phase, D = steps of the first deagglomeration
+    phase, and {total_time} is the sum over all phases. A `_FtMono` tag is appended last
+    when ft_monovalent. Numbers are formatted without trailing zeros (e.g. kon0.001,
+    eQQ2.5, dt20ps, 100us).
     """
     lj = config.lj
 
-    def fmt_eps(val):
+    def fmt_num(val):
         return f"{int(val)}" if val == int(val) else f"{val}"
 
-    eqq = f"eQQ{fmt_eps(lj.epsilon_QtQt)}"
-    eff = f"eFF{fmt_eps(lj.epsilon_FtFt)}"
-    eqf = f"eQF{fmt_eps(lj.epsilon_QtFt)}"
+    eqq = f"eQQ{fmt_num(lj.epsilon_QtQt)}"
+    eff = f"eFF{fmt_num(lj.epsilon_FtFt)}"
+    eqf = f"eQF{fmt_num(lj.epsilon_QtFt)}"
 
-    kon_val = config.topology.kon
-    kon_str = f"kon{int(kon_val)}" if kon_val == int(kon_val) else f"kon{kon_val}"
+    kon_str = f"kon{fmt_num(config.topology.kon)}"
 
     dt_ps = config.timestep * 1000  # ns -> ps
     dt_str = f"dt{dt_ps:.0f}ps" if dt_ps >= 1 else f"dt{dt_ps:.2f}ps"
@@ -1133,24 +1141,34 @@ def format_param_string(config: "SimulationConfig") -> str:
     total_us = config.total_simulation_time_us
     time_str = f"{total_us:.0f}us" if total_us >= 1 else f"{total_us:.2f}us"
 
+    # Leading identity block, shared by single and phased runs.
+    prefix = f"{config.n_qt}Qt_{config.n_ft}Ft_{lj.potential_type}_{eqq}_{eff}_{eqf}"
+
     # Additive tag so monovalent-Ft runs don't collide with multivalent ones on disk.
     # Off by default => suffix absent => existing folder/file names are unchanged.
     mono_str = "_FtMono" if config.topology.ft_monovalent else ""
 
-    # Additive tag for phased agglomeration<->deagglomeration runs. Absent for ordinary
-    # single runs, so existing names are unchanged. Encodes the number of phases and the
-    # bond-breaking rate so cycled runs don't collide with single runs on disk.
     if config.phases:
-        koff_val = config.topology.koff
-        koff_str = f"{int(koff_val)}" if koff_val == int(koff_val) else f"{koff_val}"
-        phased_str = f"_phased{len(config.phases)}_koff{koff_str}"
-    else:
-        phased_str = ""
+        # Phased layout: pair kon->agglomeration and koff->deagglomeration with their
+        # per-phase step counts. Step counts come from the first phase of each kind, which
+        # is identical across cycles for make_agg_deagg_phases.
+        koff_str = f"koff{fmt_num(config.topology.koff)}"
+        agg_steps = next(
+            (p.n_steps for p in config.phases if p.binding and not p.breaking), None
+        )
+        deagg_steps = next((p.n_steps for p in config.phases if p.breaking), None)
 
-    return (
-        f"{config.n_qt}Qt_{config.n_ft}Ft_"
-        f"{lj.potential_type}_{eqq}_{eff}_{eqf}_{kon_str}_{dt_str}_{time_str}{mono_str}{phased_str}"
-    )
+        parts = [f"phases{len(config.phases)}", kon_str]
+        if agg_steps is not None:
+            parts.append(f"aggsteps{int(agg_steps)}")
+        parts.append(koff_str)
+        if deagg_steps is not None:
+            parts.append(f"deaggsteps{int(deagg_steps)}")
+        parts.extend([dt_str, time_str])
+        return f"{prefix}_" + "_".join(parts) + mono_str
+
+    # Ordinary single run (unchanged).
+    return f"{prefix}_{kon_str}_{dt_str}_{time_str}{mono_str}"
 
 
 # =============================================================================

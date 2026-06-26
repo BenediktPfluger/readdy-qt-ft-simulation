@@ -381,12 +381,22 @@ When `topology.ft_monovalent=True`, a `_FtMono` suffix is appended (e.g.
 `…_dt50ps_100us_FtMono`) so monovalent and multivalent runs at otherwise-identical parameters
 don't collide on disk. The suffix is absent by default, so existing names are unchanged.
 
-When `config.phases` is set (agglomeration↔deagglomeration cycling), a `_phased{N}_koff{koff}`
-suffix is appended (`N` = number of phases) and the `{total_time}us` field reflects the **sum**
-of all phase durations. A phased run's outputs live under a directory derived from the trajectory
-name, with one `phase_NNN/trajectory.h5` per phase (+ a `phase_NNN/checkpoints/` used to hand off
-state to the next phase). The suffix is absent for ordinary single runs, so existing names are
-unchanged.
+When `config.phases` is set (agglomeration↔deagglomeration cycling), the tail after the shared
+identity block is replaced by a phase-specific layout (the `kon…dt…` tail above is not used):
+
+```
+{n_qt}Qt_{n_ft}Ft_{POT}_eQQ{e}_eFF{e}_eQF{e}_phases{N}_kon{kon}_aggsteps{A}_koff{koff}_deaggsteps{D}_dt{timestep}ps_{total_time}us
+```
+
+Example — `200Qt_400Ft_WCA_eQQ1.5_eFF1.5_eQF3_phases2_kon0.001_aggsteps1000000_koff0.001_deaggsteps1000000_dt50ps_100us`:
+the leading block is identical to a single run; then `phases{N}` is the number of phases
+(`N = 2 × n_cycles` for `make_agg_deagg_phases`, so cycles = N/2); `kon` is paired with
+`aggsteps{A}` (steps of the first agglomeration phase) and `koff` with `deaggsteps{D}` (steps of
+the first deagglomeration phase); `{total_time}us` is the **sum** over all phases. A phased run's
+outputs live under a directory derived from this name, with one `phase_NNN/trajectory.h5` per
+phase (+ a `phase_NNN/checkpoints/` used to hand off state to the next phase). For ordinary single
+runs (`phases=None`) the standard `kon…dt…` layout above is unchanged. `_FtMono` is still appended
+last when `topology.ft_monovalent=True`.
 
 ---
 
