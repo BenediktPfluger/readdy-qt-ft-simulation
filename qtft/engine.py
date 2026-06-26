@@ -35,6 +35,37 @@ def _make_particle_rngs(seed: int) -> Tuple:
     return rng_qt, rng_ft
 
 
+def cleanup_empty_run_dirs(root: str) -> list:
+    """Remove empty directory trees under ``root`` (returns the removed paths).
+
+    A directory is removed only if its **entire** subtree contains no files (i.e. it and
+    all descendants are empty) — so real run output is never touched. This sweeps up
+    leftover folders such as a run dir that was named/created but never written to
+    (e.g. configuring a run then running a differently-named phased run instead).
+
+    ``root`` itself is not removed. Missing ``root`` is a no-op.
+    """
+    removed = []
+    if not root or not os.path.isdir(root):
+        return removed
+    # Walk bottom-up so empty leaves are removed before their (now-empty) parents.
+    for dirpath, dirnames, filenames in os.walk(root, topdown=False):
+        if dirpath == root:
+            continue
+        if filenames:
+            continue
+        # Only remove if no remaining entries (sub-dirs were already removed if empty).
+        try:
+            if not os.listdir(dirpath):
+                os.rmdir(dirpath)
+                removed.append(dirpath)
+        except OSError:
+            pass
+    if removed:
+        print(f"✓ Removed {len(removed)} empty leftover dir(s) under {root}")
+    return removed
+
+
 def _random_positions(config: "SimulationConfig") -> Tuple[np.ndarray, np.ndarray]:
     """Uniform random Qt and Ft positions inside the box.
 
@@ -86,6 +117,14 @@ def create_simulation(
         Configured simulation ready to run
     """
     out_file = output_file if output_file is not None else config.output_file
+
+    # Ensure the output directory exists. The engine (which actually writes the file)
+    # owns directory creation, so callers/notebooks don't need to pre-create folders —
+    # a run folder is created only when a simulation really writes to it (avoids empty
+    # leftover dirs from configuring-but-not-running).
+    out_dir = os.path.dirname(out_file)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
 
     # Handle existing output file
     if os.path.exists(out_file):
@@ -445,7 +484,15 @@ def run_one(
     system = create_system(config)
     simulation = create_simulation(system, config, overwrite=overwrite)
     place_particles(simulation, config, positions_qt=pos_qt, positions_ft=pos_ft)
-    return run_simulation(simulation, config, show_progress=show_progress)
+    trajectory = run_simulation(simulation, config, show_progress=show_progress)
+
+    # Sweep empty leftover dirs under the output root (sibling run folders that were
+    # configured/named but never written to). Skip when there is no real parent.
+    parent = os.path.dirname(output_dir)
+    if parent:
+        cleanup_empty_run_dirs(parent)
+
+    return trajectory
 
 
 def run_phased(
@@ -454,6 +501,8 @@ def run_phased(
     skip_equilibration: bool = False,
     overwrite: bool = True,
     show_progress: bool = True,
+    combine: bool = True,
+    cleanup_empty: bool = True,
 ) -> list:
     """Run an agglomeration<->deagglomeration cycle defined by ``config.phases``.
 
@@ -475,13 +524,21 @@ def run_phased(
         Overwrite existing per-phase trajectory files.
     show_progress : bool
         Print per-phase progress banners.
+    combine : bool
+        After all phases, stitch the per-phase trajectories into a single continuous
+        ReaDDy trajectory ``<base_dir>/trajectory_combined.h5`` (the per-phase files are
+        kept). Only done when there are >= 2 phases.
+    cleanup_empty : bool
+        After the run, remove empty leftover directories under the output root (the
+        parent of the run folder), e.g. a run dir that was configured but never written.
 
     Returns
     -------
     list of dict
         One entry per phase with keys: index, name, dir, trajectory, n_steps,
         step_offset (cumulative steps before this phase, for stitching a continuous
-        time axis), binding, breaking, potential_type.
+        time axis), binding, breaking, potential_type. The first entry also carries
+        ``combined`` = path to trajectory_combined.h5 (or None) once combining is done.
     """
     if not config.phases:
         raise ValueError("run_phased requires config.phases to be a non-empty list")
@@ -557,5 +614,29 @@ def run_phased(
         print(f"  {len(results)} phases, {step_offset:,} total steps -> "
               f"{step_offset * config.timestep * 1e-3:.1f} µs")
         print(f"{'=' * 60}\n")
+
+    # Stitch the per-phase trajectories into one continuous ReaDDy trajectory (kept
+    # alongside the per-phase files). Imported lazily to keep engine import light.
+    combined_path = None
+    if combine and len(results) >= 2:
+        from .analysis import combine_phase_trajectories
+        combined_path = os.path.join(base_dir, "trajectory_combined.h5")
+        try:
+            combine_phase_trajectories(
+                phase_files, combined_path, step_offsets=config.phase_step_offsets
+            )
+            print(f"✓ Combined trajectory written: {combined_path}")
+        except Exception as e:
+            print(f"Warning: could not write combined trajectory: {e}")
+            combined_path = None
+    if results:
+        results[0]["combined"] = combined_path
+
+    # Sweep empty leftover dirs under the output root (parent of this run's folder).
+    # Skip when there is no real parent (avoid sweeping the current working directory).
+    if cleanup_empty:
+        parent = os.path.dirname(base_dir)
+        if parent:
+            cleanup_empty_run_dirs(parent)
 
     return results

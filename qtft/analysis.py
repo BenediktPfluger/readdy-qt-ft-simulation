@@ -1669,6 +1669,204 @@ def get_size_fractions(
 
 
 # =============================================================================
+# PHASED-TRAJECTORY COMBINING
+# =============================================================================
+
+def combine_phase_trajectories(
+    phase_files: List[str],
+    out_file: str,
+    step_offsets: Optional[List[int]] = None,
+    drop_duplicate_boundary: bool = True,
+) -> str:
+    """Stitch per-phase ReaDDy trajectories into one continuous trajectory file.
+
+    A phased run (engine.run_phased) writes one ``trajectory.h5`` per phase, each with
+    step numbers (``time``) restarting at 0. This concatenates them into a single
+    ReaDDy-readable ``out_file`` spanning the whole cycle on a continuous step axis, so
+    it can be opened with ``readdy.Trajectory``, re-analysed by the get_* functions, and
+    exported to one ``.xyz`` (convert_h5_to_xyz). The per-phase files are left untouched.
+
+    How it works (no ReaDDy write API exists, so this is direct HDF5 surgery):
+
+    - ``readdy/config`` is copied verbatim from the first phase (particle/topology type
+      metadata; per-phase reaction lists differ but are not needed to *read* frames).
+    - For each phase i, every per-frame ``time`` is shifted by ``step_offsets[i]`` (the
+      cumulative steps of prior phases). The first frame of each non-first phase is the
+      checkpoint-restored copy of the previous phase's last frame, so it is dropped when
+      ``drop_duplicate_boundary`` (default) to keep the axis strictly increasing.
+    - ``readdy/trajectory`` (records/limits/time) and ``readdy/observables/topologies``
+      (edges/particles/limits*/types/time) are concatenated by keeping each frame's data
+      slices intact and rebuilding the per-frame ``limits`` as running offsets. Edge and
+      particle indices are frame-local, so slice contents need no rewriting.
+    - All other ``readdy/observables/<obs>`` with a ``time`` dataset are concatenated
+      along the frame axis (per-frame datasets shifted/masked; non-per-frame datasets such
+      as rdf ``bin_centers`` copied once from phase 0).
+    - ``reaction_counts`` is skipped: its sub-structure differs between binding phases
+      (spatialCounts) and breaking phases (structuralCounts). The per-phase files keep it.
+
+    Output datasets are written with gzip (built-in HDF5 filter) instead of ReaDDy's
+    blosc, so the combined file is readable without the blosc plugin.
+
+    Parameters
+    ----------
+    phase_files : list of str
+        Per-phase trajectory.h5 paths, in order.
+    out_file : str
+        Path of the combined trajectory to write (overwritten if present).
+    step_offsets : list of int, optional
+        Cumulative step count before each phase. If None, derived by chaining each
+        phase's own final ``readdy/trajectory/time`` value.
+    drop_duplicate_boundary : bool
+        Drop each non-first phase's first frame (the duplicated boundary state).
+
+    Returns
+    -------
+    str
+        ``out_file``.
+    """
+    import h5py  # readdy is imported at module top, which registers the blosc filter
+
+    if not phase_files:
+        raise ValueError("combine_phase_trajectories needs at least one phase file")
+    for p in phase_files:
+        if not os.path.exists(p):
+            raise FileNotFoundError(f"Phase trajectory not found: {p}")
+
+    handles = [h5py.File(p, "r") for p in phase_files]
+    try:
+        # Resolve per-phase step offsets if not provided (chain each phase's final step).
+        if step_offsets is None:
+            step_offsets, cum = [], 0
+            for h in handles:
+                step_offsets.append(cum)
+                cum += int(h["readdy/trajectory/time"][-1])
+        offsets = [int(o) for o in step_offsets]
+
+        out_dir = os.path.dirname(out_file)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+
+        def _write(group, name, array, like=None):
+            """Create a dataset, gzip-compressing plain numeric arrays only."""
+            arr = np.asarray(array) if not isinstance(array, np.ndarray) else array
+            dtype = like.dtype if like is not None else arr.dtype
+            comp = {}
+            if dtype != object and arr.dtype != object and arr.size:
+                comp = {"compression": "gzip"}
+            try:
+                group.create_dataset(name, data=arr, dtype=dtype, **comp)
+            except (TypeError, ValueError):
+                group.create_dataset(name, data=arr, dtype=dtype)
+
+        def _first_kept(time, offset, last_time):
+            """Index of the first frame to keep for a phase (drop duplicated boundary)."""
+            if last_time is None or not drop_duplicate_boundary or len(time) == 0:
+                return 0
+            return 1 if int(time[0]) + offset == last_time else 0
+
+        with h5py.File(out_file, "w") as fout:
+            readdy_out = fout.create_group("readdy")
+            handles[0].copy("readdy/config", readdy_out)
+
+            # ---- readdy/trajectory : records / limits / time ----
+            traj_out = readdy_out.create_group("trajectory")
+            rec_parts, lim_parts, time_parts = [], [], []
+            running = 0
+            last_time = None
+            for h, off in zip(handles, offsets):
+                g = h["readdy/trajectory"]
+                time = g["time"][:]
+                limits = g["limits"][:].astype(np.int64)
+                first = _first_kept(time, off, last_time)
+                base = int(limits[first, 0])
+                rec_parts.append(g["records"][base:])
+                lim_parts.append(limits[first:] - base + running)
+                kt = time[first:].astype(np.uint64) + np.uint64(off)
+                time_parts.append(kt)
+                running += int(g["records"].shape[0]) - base
+                if len(kt):
+                    last_time = int(kt[-1])
+            _write(traj_out, "records", np.concatenate(rec_parts), like=handles[0]["readdy/trajectory/records"])
+            _write(traj_out, "limits", np.concatenate(lim_parts).astype(np.uint64))
+            _write(traj_out, "time", np.concatenate(time_parts).astype(np.uint64))
+
+            obs_out = readdy_out.create_group("observables")
+
+            # ---- readdy/observables/topologies : edges/particles/limits*/types/time ----
+            if "readdy/observables/topologies" in handles[0]:
+                topo_out = obs_out.create_group("topologies")
+                ed, pa, lE, lP, ty, tt = [], [], [], [], [], []
+                runE = runP = 0
+                last_time = None
+                for h, off in zip(handles, offsets):
+                    g = h["readdy/observables/topologies"]
+                    time = g["time"][:]
+                    limE = g["limitsEdges"][:].astype(np.int64)
+                    limP = g["limitsParticles"][:].astype(np.int64)
+                    first = _first_kept(time, off, last_time)
+                    bE, bP = int(limE[first, 0]), int(limP[first, 0])
+                    ed.append(g["edges"][bE:])
+                    pa.append(g["particles"][bP:])
+                    lE.append(limE[first:] - bE + runE)
+                    lP.append(limP[first:] - bP + runP)
+                    ty.append(g["types"][first:])
+                    kt = time[first:].astype(np.uint64) + np.uint64(off)
+                    tt.append(kt)
+                    runE += int(g["edges"].shape[0]) - bE
+                    runP += int(g["particles"].shape[0]) - bP
+                    if len(kt):
+                        last_time = int(kt[-1])
+                _write(topo_out, "edges", np.concatenate(ed), like=handles[0]["readdy/observables/topologies/edges"])
+                _write(topo_out, "particles", np.concatenate(pa), like=handles[0]["readdy/observables/topologies/particles"])
+                _write(topo_out, "limitsEdges", np.concatenate(lE).astype(np.uint64))
+                _write(topo_out, "limitsParticles", np.concatenate(lP).astype(np.uint64))
+                _write(topo_out, "time", np.concatenate(tt).astype(np.uint64))
+                _write(topo_out, "types", np.concatenate(ty), like=handles[0]["readdy/observables/topologies/types"])
+
+            # ---- generic observables with a per-frame 'time' (skip reaction_counts) ----
+            for name in handles[0]["readdy/observables"]:
+                if name in ("topologies", "reaction_counts"):
+                    continue
+                src0 = handles[0][f"readdy/observables/{name}"]
+                if not isinstance(src0, h5py.Group) or "time" not in src0:
+                    continue
+                g_out = obs_out.create_group(name)
+                n_frames0 = src0["time"].shape[0]
+                # per-dataset concatenation
+                for dname, d0 in src0.items():
+                    if not isinstance(d0, h5py.Dataset):
+                        continue
+                    if d0.shape and d0.shape[0] == n_frames0:
+                        # per-frame dataset: concat across phases with boundary dedup
+                        parts = []
+                        last_time = None
+                        for h, off in zip(handles, offsets):
+                            g = h[f"readdy/observables/{name}"]
+                            time = g["time"][:]
+                            first = _first_kept(time, off, last_time)
+                            if dname == "time":
+                                kt = time[first:].astype(np.uint64) + np.uint64(off)
+                                parts.append(kt)
+                                if len(kt):
+                                    last_time = int(kt[-1])
+                            else:
+                                parts.append(g[dname][first:])
+                                # advance last_time using this group's time for dedup
+                                kt = time[first:].astype(np.uint64) + np.uint64(off)
+                                if len(kt):
+                                    last_time = int(kt[-1])
+                        _write(g_out, dname, np.concatenate(parts), like=d0)
+                    else:
+                        # non-per-frame (e.g. rdf bin_centers): copy once from phase 0
+                        _write(g_out, dname, d0[:], like=d0)
+
+        return out_file
+    finally:
+        for h in handles:
+            h.close()
+
+
+# =============================================================================
 # EXPORT FUNCTIONS
 # =============================================================================
 

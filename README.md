@@ -332,6 +332,8 @@ This (re)writes `ensemble_statistics.json` and `ensemble_structural.npz`.
 |------|--------|----------|
 | `replica_NNN/trajectory.h5` | HDF5 (ReaDDy) | frames + observables; read with `readdy.Trajectory(path)` |
 | `replica_NNN/trajectory.xyz` | extended XYZ | OVITO-friendly export (large; optional) |
+| `phase_NNN/trajectory.h5` (phased) | HDF5 (ReaDDy) | one per phase of a cycle (+ `phase_NNN/checkpoints/`) |
+| `trajectory_combined.h5` (phased) | HDF5 (ReaDDy) | whole cycle stitched into one continuous trajectory (auto) |
 | `ensemble_statistics.json` | JSON | time-series means/stds + per-replica traces + scalar `summary` |
 | `ensemble_structural.npz` | NumPy npz | structural arrays (Rg, NN, coordination, composition, size fractions) |
 | `ensemble_config.json` | JSON | base configuration |
@@ -397,6 +399,19 @@ outputs live under a directory derived from this name, with one `phase_NNN/traje
 phase (+ a `phase_NNN/checkpoints/` used to hand off state to the next phase). For ordinary single
 runs (`phases=None`) the standard `kon…dt…` layout above is unchanged. `_FtMono` is still appended
 last when `topology.ft_monovalent=True`.
+
+After all phases, `run_phased` auto-writes a single **`trajectory_combined.h5`** in the run
+directory: the per-phase trajectories stitched onto one continuous step axis (the duplicated
+boundary frame is dropped), openable with `readdy.Trajectory`, re-analysable by the `get_*`
+functions, and exportable to one `.xyz`. The per-phase files are **kept**. It omits the
+`reaction_counts` observable (its schema differs between binding and breaking phases) and is written
+with gzip rather than ReaDDy's blosc. Disable with `run_phased(..., combine=False)`; build one
+manually with `analysis.combine_phase_trajectories(phase_files, out_file)`.
+
+**Empty-directory cleanup.** The engine creates a run folder only when a simulation actually writes
+to it (`create_simulation` makes the output dir), and after each run it removes empty leftover
+directories under the output root via `qtft.cleanup_empty_run_dirs(root)` (only file-free trees are
+removed; pass `cleanup_empty=False` to skip). You can also call that helper directly.
 
 ---
 

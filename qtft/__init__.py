@@ -30,6 +30,7 @@ from .engine import (
     equilibrate_system,
     run_one,
     run_phased,
+    cleanup_empty_run_dirs,
 )
 from .ensemble import EnsembleSimulation
 
@@ -50,5 +51,6 @@ __all__ = [
     "equilibrate_system",
     "run_one",
     "run_phased",
+    "cleanup_empty_run_dirs",
     "EnsembleSimulation",
 ]
