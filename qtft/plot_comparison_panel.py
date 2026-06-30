@@ -1,19 +1,22 @@
 """
 Qt-Ft cross-ensemble comparison thesis figure panel.
 
-Composes a single 3x3 figure that overlays multiple ensembles (one colored line per
+Composes a single 3x4 figure that overlays multiple ensembles (one colored line per
 ensemble, optional ±1 SD bands) for the most relevant comparison plots. This is the
 cross-ensemble counterpart to ``qtft.plot_ensemble_panel`` (which curates a single
 ensemble). It reuses the comparison drawing conventions/constants from ``qtft.plotting``
 (so the existing public plotting functions stay untouched).
 
-Layout (3x3):
-    Row 1: Potential Energy      | Pressure                        | Number of Bonds
-    Row 2: Individual Topologies | Average Cluster Size            | Largest Cluster Size
-    Row 3: Coordination Number   | Mean Cluster Composition         | Mean Radius of Gyration
+Layout (3x4):
+    Row 1: Potential Energy     | Pressure                     | Number of Bonds        | Number of Individual Topologies
+    Row 2: Average Cluster Size | Avg Cluster Size (norm. ÷N)  | Largest Cluster Size   | Largest Cluster Size (norm. ÷N)
+    Row 3: Mean Radius of Gyr.  | Normalized Radius of Gyr.    | Coordination Number    | Mean Cluster Composition
 
 Rows 1-2 read per-ensemble basic statistics from ``ens['stats']`` (keys ``{stat}_mean`` /
-``{stat}_std``, time axis ``ens['times_us']`` in µs). Row 3 reads structural data from
+``{stat}_std``, time axis ``ens['times_us']`` in µs). The two "normalized" cluster-size
+panels divide by the total particle count N (= ``stats['total_count_mean']``, else
+``config['n_qt']+config['n_ft']``), i.e. the fraction of all particles in the average /
+largest cluster. Row 3 (and the normalized Rg panel) read structural data from
 ``ens['structural']`` (step-indexed, converted to µs via ``_steps_to_us``). The structural
 data is only present when the comparison is built with
 ``qtft.comparison.compare_ensembles`` (the live load path), not with ``load_comparison_data``.
@@ -48,22 +51,22 @@ def plot_comparison_panel(
     comparison: dict,
     *,
     show_bands: Optional[bool] = None,
-    figsize: Tuple[float, float] = (18, 17),
+    figsize: Tuple[float, float] = (24, 17),
     save_path_base: Optional[str] = None,
 ) -> plt.Figure:
     """
-    Build the cross-ensemble comparison thesis panel (3x3 grid) and optionally save
+    Build the cross-ensemble comparison thesis panel (3x4 grid) and optionally save
     SVG + PNG.
 
     Parameters
     ----------
     comparison : dict
         Comparison data structure from ``qtft.comparison.compare_ensembles`` (must include
-        per-ensemble ``structural`` data for Row 3).
+        per-ensemble ``structural`` data for Row 3 and the normalized Rg panel).
     show_bands : bool, optional
         Show ±1 SD bands. Default (None): True for ≤3 ensembles, False otherwise.
     figsize : tuple
-        Figure size (default 18x17 for the 3x3 grid).
+        Figure size (default 24x17 for the 3x4 grid).
     save_path_base : str, optional
         If given, save ``{base}.svg`` and ``{base}.png``.
 
@@ -74,15 +77,38 @@ def plot_comparison_panel(
     print("\nGenerating ensemble comparison thesis panel...")
 
     fig = plt.figure(figsize=figsize)
-    gs = fig.add_gridspec(3, 3, hspace=0.35, wspace=0.3)
+    gs = fig.add_gridspec(3, 4, hspace=0.35, wspace=0.3)
 
     n_ensembles = comparison['n_ensembles']
     show_bands = _get_show_bands_default(n_ensembles, show_bands)
     labels = comparison['labels']
 
+    def _total_particles(ens):
+        """Total particle count N for an ensemble (constant), for ÷N normalization.
+
+        Prefers stats['total_count_mean'] (always recorded); falls back to
+        config n_qt+n_ft. Returns None if neither is available.
+        """
+        tc = ens['stats'].get('total_count_mean')
+        if tc is not None and len(np.atleast_1d(tc)):
+            n = float(np.asarray(tc).ravel()[0])
+            if n > 0:
+                return n
+        cfg = ens.get('config', {}) or {}
+        if cfg.get('n_qt') is not None and cfg.get('n_ft') is not None:
+            n = float(cfg['n_qt']) + float(cfg['n_ft'])
+            if n > 0:
+                return n
+        return None
+
     # --- local axis-level helpers (mirror the closures in qtft.plotting) ---
-    def plot_stat(ax, stat_key, ylabel, title, legend_loc='best'):
-        """Overlay a basic-stats time series (ens['stats']) for each ensemble."""
+    def plot_stat(ax, stat_key, ylabel, title, legend_loc='best', divide_by_N=False):
+        """Overlay a basic-stats time series (ens['stats']) for each ensemble.
+
+        When ``divide_by_N`` is True, each ensemble's mean/std are divided by its total
+        particle count N (fraction of all particles), so curves are comparable across
+        ensembles with different N.
+        """
         has_data = False
         for i, label in enumerate(labels):
             ens = comparison['ensembles'][label]
@@ -93,8 +119,16 @@ def plot_comparison_panel(
             if mean_key not in ens['stats']:
                 continue
 
-            mean_vals = ens['stats'][mean_key]
-            std_vals = ens['stats'].get(std_key, np.zeros_like(mean_vals))
+            mean_vals = np.asarray(ens['stats'][mean_key], dtype=float)
+            std_vals = np.asarray(ens['stats'].get(std_key, np.zeros_like(mean_vals)), dtype=float)
+
+            if divide_by_N:
+                N = _total_particles(ens)
+                if not N:
+                    continue
+                mean_vals = mean_vals / N
+                std_vals = std_vals / N
+
             color = COMPARISON_COLORS[i % len(COMPARISON_COLORS)]
 
             ax.plot(times_us, mean_vals, color=color, linewidth=2, label=label)
@@ -210,7 +244,7 @@ def plot_comparison_panel(
                       loc=legend_loc, fontsize=FONTSIZE_LEGEND)
 
     # ======================================================================
-    # Row 1: Energy, Pressure, Number of Bonds
+    # Row 1: Potential Energy, Pressure, Number of Bonds, Individual Topologies
     # ======================================================================
     plot_stat(fig.add_subplot(gs[0, 0]), 'energy', "Energy (kJ/mol)", "Potential Energy",
               legend_loc='lower left')
@@ -218,31 +252,43 @@ def plot_comparison_panel(
               legend_loc='upper left')
     plot_stat(fig.add_subplot(gs[0, 2]), 'bonds', "Number of Bonds", "Number of Bonds",
               legend_loc='lower right')
+    plot_stat(fig.add_subplot(gs[0, 3]), 'n_clusters', "Number of Individual Topologies",
+              "Number of Individual Topologies", legend_loc='upper right')
 
     # ======================================================================
-    # Row 2: Individual Topologies, Average Cluster Size, Largest Cluster Size
+    # Row 2: Average Cluster Size (+ ÷N), Largest Cluster Size (+ ÷N)
     # ======================================================================
-    plot_stat(fig.add_subplot(gs[1, 0]), 'n_clusters', "Number of Individual Topologies",
-              "Number of Individual Topologies", legend_loc='upper right')
-    plot_stat(fig.add_subplot(gs[1, 1]), 'avg_cluster', "Average Size (particles)",
+    plot_stat(fig.add_subplot(gs[1, 0]), 'avg_cluster', "Average Size (particles)",
               "Average Cluster Size", legend_loc='upper left')
+    plot_stat(fig.add_subplot(gs[1, 1]), 'avg_cluster', "Fraction of particles",
+              "Average Cluster Size (normalized)", legend_loc='upper left',
+              divide_by_N=True)
     plot_stat(fig.add_subplot(gs[1, 2]), 'largest_cluster', "Cluster Size (particles)",
               "Largest Cluster Size", legend_loc='upper left')
+    ax_largest_norm = fig.add_subplot(gs[1, 3])
+    plot_stat(ax_largest_norm, 'largest_cluster', "Fraction of particles",
+              "Largest Cluster Size (normalized)", legend_loc='upper left',
+              divide_by_N=True)
+    ax_largest_norm.set_ylim([0, 1])
 
     # ======================================================================
-    # Row 3: Coordination Number, Mean Cluster Composition, Mean Radius of Gyration
+    # Row 3: Mean Rg, Normalized Rg, Coordination Number, Mean Cluster Composition
     # ======================================================================
-    plot_coord_fused(fig.add_subplot(gs[2, 0]), legend_loc='lower right')
+    plot_struct(fig.add_subplot(gs[2, 0]), 'morphology_times', 'mean_rg_mean',
+                'mean_rg_std', "Mean Rg (nm)", "Mean Radius of Gyration",
+                legend_loc='upper left')
 
-    ax_comp = fig.add_subplot(gs[2, 1])
+    plot_struct(fig.add_subplot(gs[2, 1]), 'morphology_times', 'mean_rg_normalized_mean',
+                'mean_rg_normalized_std', r"Rg / Rg$_{\mathrm{ideal}}$",
+                "Normalized Radius of Gyration", legend_loc='lower right')
+
+    plot_coord_fused(fig.add_subplot(gs[2, 2]), legend_loc='lower right')
+
+    ax_comp = fig.add_subplot(gs[2, 3])
     plot_struct(ax_comp, 'composition_times', 'mean_composition_mean',
                 'mean_composition_std', "Mean Qt Fraction", "Mean Cluster Composition",
                 legend_loc='lower right')
     ax_comp.set_ylim([0, 1])
-
-    plot_struct(fig.add_subplot(gs[2, 2]), 'morphology_times', 'mean_rg_mean',
-                'mean_rg_std', "Mean Rg (nm)", "Mean Radius of Gyration",
-                legend_loc='upper left')
 
     if save_path_base:
         svg_path = f"{save_path_base}.svg"

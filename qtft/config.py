@@ -101,7 +101,10 @@ class TopologyConfig:
     binding_radius : float
         Distance within which binding can occur (nm)
     kon : float
-        Binding rate constant (nm³/(ns·particles))
+        Binding rate, passed straight to ReaDDy's spatial-reaction ``rate``. It is a
+        microscopic per-pair rate in 1/ns (timestep is in ns): any eligible pair within
+        binding_radius reacts with probability p = 1 - exp(-kon * timestep) per step. It is
+        NOT the macroscopic nm³/(ns·particle) mass-action constant (see README caveat P4).
     k_bond : float
         Harmonic bond force constant (kJ/(mol·nm²))
     ft_monovalent : bool

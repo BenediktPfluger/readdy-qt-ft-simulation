@@ -1703,6 +1703,10 @@ def combine_phase_trajectories(
       as rdf ``bin_centers`` copied once from phase 0).
     - ``reaction_counts`` is skipped: its sub-structure differs between binding phases
       (spatialCounts) and breaking phases (structuralCounts). The per-phase files keep it.
+      Any observable whose dtype h5py cannot write (notably the optional ``particles``
+      observable, a vlen-of-array dataset) is also skipped with a message — it is
+      redundant here since per-frame positions live in ``readdy/trajectory`` and analysis
+      falls back to ``trajectory.read()``. The per-phase files retain these.
 
     Output datasets are written with gzip (built-in HDF5 filter) instead of ReaDDy's
     blosc, so the combined file is readable without the blosc plugin.
@@ -1747,7 +1751,12 @@ def combine_phase_trajectories(
             os.makedirs(out_dir, exist_ok=True)
 
         def _write(group, name, array, like=None):
-            """Create a dataset, gzip-compressing plain numeric arrays only."""
+            """Create a dataset (gzip for plain numeric arrays).
+
+            Returns True on success, or False if h5py cannot write the value (e.g. a
+            vlen-of-array dataset such as the `particles`/`forces` observables), after
+            removing any partially-created dataset so the caller can cleanly skip it.
+            """
             arr = np.asarray(array) if not isinstance(array, np.ndarray) else array
             dtype = like.dtype if like is not None else arr.dtype
             comp = {}
@@ -1755,8 +1764,18 @@ def combine_phase_trajectories(
                 comp = {"compression": "gzip"}
             try:
                 group.create_dataset(name, data=arr, dtype=dtype, **comp)
-            except (TypeError, ValueError):
-                group.create_dataset(name, data=arr, dtype=dtype)
+                return True
+            except Exception:
+                if name in group:
+                    del group[name]
+                return False
+
+        def _write_required(group, name, array, like=None):
+            if not _write(group, name, array, like=like):
+                raise RuntimeError(
+                    f"combine_phase_trajectories: cannot write required dataset "
+                    f"{group.name}/{name}"
+                )
 
         def _first_kept(time, offset, last_time):
             """Index of the first frame to keep for a phase (drop duplicated boundary)."""
@@ -1786,9 +1805,9 @@ def combine_phase_trajectories(
                 running += int(g["records"].shape[0]) - base
                 if len(kt):
                     last_time = int(kt[-1])
-            _write(traj_out, "records", np.concatenate(rec_parts), like=handles[0]["readdy/trajectory/records"])
-            _write(traj_out, "limits", np.concatenate(lim_parts).astype(np.uint64))
-            _write(traj_out, "time", np.concatenate(time_parts).astype(np.uint64))
+            _write_required(traj_out, "records", np.concatenate(rec_parts), like=handles[0]["readdy/trajectory/records"])
+            _write_required(traj_out, "limits", np.concatenate(lim_parts).astype(np.uint64))
+            _write_required(traj_out, "time", np.concatenate(time_parts).astype(np.uint64))
 
             obs_out = readdy_out.create_group("observables")
 
@@ -1816,12 +1835,12 @@ def combine_phase_trajectories(
                     runP += int(g["particles"].shape[0]) - bP
                     if len(kt):
                         last_time = int(kt[-1])
-                _write(topo_out, "edges", np.concatenate(ed), like=handles[0]["readdy/observables/topologies/edges"])
-                _write(topo_out, "particles", np.concatenate(pa), like=handles[0]["readdy/observables/topologies/particles"])
-                _write(topo_out, "limitsEdges", np.concatenate(lE).astype(np.uint64))
-                _write(topo_out, "limitsParticles", np.concatenate(lP).astype(np.uint64))
-                _write(topo_out, "time", np.concatenate(tt).astype(np.uint64))
-                _write(topo_out, "types", np.concatenate(ty), like=handles[0]["readdy/observables/topologies/types"])
+                _write_required(topo_out, "edges", np.concatenate(ed), like=handles[0]["readdy/observables/topologies/edges"])
+                _write_required(topo_out, "particles", np.concatenate(pa), like=handles[0]["readdy/observables/topologies/particles"])
+                _write_required(topo_out, "limitsEdges", np.concatenate(lE).astype(np.uint64))
+                _write_required(topo_out, "limitsParticles", np.concatenate(lP).astype(np.uint64))
+                _write_required(topo_out, "time", np.concatenate(tt).astype(np.uint64))
+                _write_required(topo_out, "types", np.concatenate(ty), like=handles[0]["readdy/observables/topologies/types"])
 
             # ---- generic observables with a per-frame 'time' (skip reaction_counts) ----
             for name in handles[0]["readdy/observables"]:
@@ -1832,6 +1851,7 @@ def combine_phase_trajectories(
                     continue
                 g_out = obs_out.create_group(name)
                 n_frames0 = src0["time"].shape[0]
+                ok = True
                 # per-dataset concatenation
                 for dname, d0 in src0.items():
                     if not isinstance(d0, h5py.Dataset):
@@ -1847,18 +1867,25 @@ def combine_phase_trajectories(
                             if dname == "time":
                                 kt = time[first:].astype(np.uint64) + np.uint64(off)
                                 parts.append(kt)
-                                if len(kt):
-                                    last_time = int(kt[-1])
                             else:
                                 parts.append(g[dname][first:])
-                                # advance last_time using this group's time for dedup
                                 kt = time[first:].astype(np.uint64) + np.uint64(off)
-                                if len(kt):
-                                    last_time = int(kt[-1])
-                        _write(g_out, dname, np.concatenate(parts), like=d0)
+                            if len(kt):
+                                last_time = int(kt[-1])
+                        ok = _write(g_out, dname, np.concatenate(parts), like=d0)
                     else:
                         # non-per-frame (e.g. rdf bin_centers): copy once from phase 0
-                        _write(g_out, dname, d0[:], like=d0)
+                        ok = _write(g_out, dname, d0[:], like=d0)
+                    if not ok:
+                        break
+                if not ok:
+                    # An observable whose dtype h5py can't write (e.g. the vlen-of-array
+                    # `particles` observable). It is redundant for the combined file —
+                    # positions live in readdy/trajectory and analysis falls back to
+                    # trajectory.read() — so drop the group and continue.
+                    if name in obs_out:
+                        del obs_out[name]
+                    print(f"  (combine: skipped observable '{name}' — dtype not writable by h5py)")
 
         return out_file
     finally:
