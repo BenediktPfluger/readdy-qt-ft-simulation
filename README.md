@@ -417,55 +417,28 @@ removed; pass `cleanup_empty=False` to skip). You can also call that helper dire
 
 ---
 
-## 11. Gotchas
-
-- **Time axis = step numbers, not nanoseconds.** ReaDDy observables return *step counts*.
-  Convert with `time_µs = steps × timestep_ns × 1e-3` (helper `_steps_to_us`, constant
-  `NS_TO_US = 1e-3`). The analysis/plotting code already does this where relevant.
-- **WCA is for equilibration only**; production must use `potential_type="LJ"` to get attraction.
-- **Large files.** Each `trajectory.h5` / `trajectory.xyz` can be ~1.6 GB; `ensemble_state.json`
-  can reach ~130 MB. Use `particles_observable_stride=None` (default) to avoid storing per-particle
-  positions unless you need them, and a coarse `record_stride`/`observable_stride`. The unread
-  `forces`/`virial` observables are recorded on a coarse `heavy_observable_stride`
-  (default 100× `observable_stride`) so they don't dominate file size.
-- **Determinism:** results depend on `rng_seed`; ensembles assign one seed per replica.
-
----
-
-## 11a. Known modelling caveats
+## 11. Limitations
 
 These are deliberate simplifications / open questions in the current physical model, documented
 here rather than silently fixed (see `CODE_REVIEW.md` for IDs and history):
 
-- **(P2) RESOLVED — LJ minimum now sits at the bond length.** σ is set to
-  `σ = (r_i + r_j) / 2^(1/6) ≈ 0.8909·(r_i + r_j)`, so the 12-6 LJ minimum at `2^(1/6)·σ` and the
-  WCA exclusion edge both land at the contact distance `r_i + r_j`, which equals the harmonic
-  bond equilibrium length `r0 = r_i + r_j`. Bonded pairs are no longer squeezed by a mismatched
-  LJ minimum. (ReaDDy still does not exclude intra-topology pairs from pair potentials, but the
-  bond and LJ minima now coincide.) **Note:** earlier datasets predate this fix and were run under the old `σ = r_i + r_j` convention, so they are not physically
-  comparable to runs made after this change.
-- **(P3) Cluster diffusion is a single fixed value, not size-dependent.** `ParticleConfig.cluster_diffusion`
+- **Cluster diffusion is a single fixed value, not size-dependent.** `ParticleConfig.cluster_diffusion`
   defaults to the monomer `diffusion`; clusters still do not slow down as `D ∝ 1/R`. The current
   standard config sets it explicitly (Qt 0.3, Ft 0.7 nm²/ns), so bound particles diffuse slower than
   free monomers, but the value is constant regardless of cluster size.
-- **(P4) `kon` is a microscopic rate.** It is passed straight to ReaDDy's spatial-reaction `rate`
+- **`kon` is a microscopic rate.** It is passed straight to ReaDDy's spatial-reaction `rate`
   (a per-pair `1/time` rate), not the macroscopic `nm³/(ns·particle)` constant the older label
   implied. Treat the swept `kon` values as microscopic rates.
-- **(P5) Diffusion ratio is not Stokes–Einstein consistent.** The Qt/Ft `D` values are a
+- **Diffusion ratio is not Stokes–Einstein consistent.** The Qt/Ft `D` values are a
   coarse-graining choice and do not follow `D ∝ 1/r` from the radii; this is intentional, noted
   here to avoid confusion.
 - **Cluster bond graphs are spanning trees.** Every reaction adds exactly one bond and never closes
   a ring, so clusters are acyclic (`n_bonds = n_particles − 1`); coordination numbers from the bond
   graph reflect that tree, not true spatial contact coordination.
-- **(P6) Monovalent Ft is a leaf-only model.** With `topology.ft_monovalent=True`, an Ft can hold
-  exactly one bond, so it can never bridge two Qt and two clusters can never merge. Every cluster is
-  therefore a single-Qt star (one Qt + N Ft leaves), and a free Qt can only enter a cluster by
-  seeding a new one with a free Ft — it cannot attach to an existing cluster. This is the intended
-  physical model for monovalent ferritin, not a bug. Default `False` keeps Ft fully multivalent.
-- **(P7) Bond breaking (`koff`) is a mean-field per-edge rate.** Each existing bond breaks at the
+- **Bond breaking (`koff`) is a mean-field per-edge rate.** Each existing bond breaks at the
   same rate `koff` regardless of its location in the cluster (interior vs leaf) or local geometry;
   the broken edge is chosen uniformly at random, not by force or strain. It is a microscopic
-  dissociation rate (1/time), the deagglomeration counterpart of the microscopic `kon` (P4), not a
+  dissociation rate (1/time), the deagglomeration counterpart of the microscopic `kon`, not a
   macroscopic off-rate. A freed monomer is re-typed back to its free species essentially instantly
   (a fast internal cleanup reaction), so it is indistinguishable from an originally-free particle.
   Note: ReaDDy 2.0.13's built-in `add_topology_dissociation` is bypassed (it is broken in that
