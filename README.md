@@ -1,6 +1,6 @@
 # Qt–Ft Agglomeration Simulation (ReaDDy2)
 
-Coarse-grained Brownian-dynamics simulation of **Qt encapsulins** and **ferritin (Ft)**
+Coarse-grained Brownian-dynamics simulation of **Qt encapsulins (Qt)** and **ferritin (Ft)**
 nanoparticles agglomerating in solution, built on [ReaDDy2](https://readdy.github.io/).
 Two diffusing species bind into growing clusters ("topologies") through stochastic spatial
 reactions; the code measures the resulting **agglomeration kinetics** and **cluster
@@ -42,8 +42,7 @@ valence is governed purely by which particle types appear as reactants. In both 
 `grow_QtC_Ft` the particle that becomes `FtC` is a *free* Ft gaining its first bond, whereas
 `grow_FtC_Qt` and `merge_QtC_FtC` are the only reactions that give an already-bonded `FtC` a
 *second* bond. Setting `ft_monovalent=True` skips those two reactions, so `FtC` is terminal and
-every Ft forms **at most one bond**. Clusters then become **single-Qt stars** (one multivalent Qt
-hub + N monovalent Ft leaves): two clusters never merge, and a free Qt joins only by seeding with
+every Ft forms **at most one bond**. Clusters then become **single-Qt stars** (one multivalent Qt + N monovalent Ft leaves): two clusters never merge, and a free Qt joins only by seeding with
 a free Ft. Qt stays multivalent. Default `False` reproduces the original multivalent model.
 
 **Potentials.**
@@ -51,8 +50,8 @@ a free Ft. Qt stays multivalent. Default `False` reproduces the original multiva
   `potential_type="WCA"` → purely repulsive (cutoff `2^(1/6)·σ`); `"LJ"` → full attractive
   well (cutoff `2.5·σ`). σ is set so the LJ minimum / WCA exclusion fall at the contact
   distance: `σ = (r_i + r_j) / 2^(1/6) ≈ 0.8909·(r_i + r_j)`, which puts the well minimum at
-  `r_i + r_j` = the harmonic bond length (see §11a, P2). ε is set per pair through a cascade of
-  defaults (see §6).
+  `r_i + r_j` = the harmonic bond length. ε is set per pair through a cascade of
+  defaults.
 - **Harmonic bonds** (`k_bond`) hold bonded particles inside a cluster at equilibrium length
   `r_Qt + r_Ft`.
 
@@ -70,15 +69,13 @@ to model an **agglomeration ↔ deagglomeration cycle** (e.g. bind for 50 µs, t
 `potential_type` (`"LJ"` attractive or `"WCA"` repulsive). Bond breaking uses **structural
 topology dissociation**: a bonded cluster loses one uniformly-random bond at total rate
 `n_edges × topology.koff`, splitting into sub-clusters; a freed monomer is automatically re-typed
-back to its free species (`QtC→Qt`, `FtC→Ft`). A typical cycle is agglomeration (binding on,
-breaking off, `LJ`) then deagglomeration (binding off, breaking on, `WCA` so freed particles
-disperse); build it with `make_agg_deagg_phases(agg_steps, deagg_steps, n_cycles=...)`. Because
+back to its free species (`QtC→Qt`, `FtC→Ft`). Build it with `make_agg_deagg_phases(agg_steps, deagg_steps, n_cycles=...)`. Because
 ReaDDy cannot change reactions mid-run, `run_phased()` runs each phase as a separate segment and
 carries state (positions **and** bonds) across phases via ReaDDy checkpoints. Each phase writes its
 own `phase_NNN/trajectory.h5`; analysis stitches them onto one continuous time axis
 (`analysis.load_phased_observables`, `plotting.plot_phased_kinetics`). When `phases` is unset
 (default), behavior and on-disk filenames are exactly as before. Works for single runs and
-ensembles alike (see §6). Single dispatch point: `run_one()` calls `run_phased()` automatically
+ensembles alike. Single dispatch point: `run_one()` calls `run_phased()` automatically
 when `config.phases` is set.
 
 **Integrator / environment.** EulerBD Brownian-dynamics integrator, Gillespie reactions,
@@ -104,7 +101,6 @@ All code lives in the **`qtft`** package; `scripts/` holds thin CLI wrappers.
 | `scripts/run_replica.py` | CLI to run **one** replica from a config JSON (used locally and by SLURM job arrays). |
 | `Run_Simulation.ipynb` | Run-only notebook: one **Configuration** cell (all parameters) + one **Run** cell that dispatches on `RUN_MODE` (`single`/`ensemble`) and `ENABLE_DEAGG` (plain vs agglomeration↔deagglomeration cycling); optional SLURM cell. No plotting. |
 | `Plot_Simulation_Results.ipynb` | Plotting/reporting notebook: one **Settings** cell + one **Run** cell selected by `MODE` (`single` trajectory / `ensemble` directory / `comparison` of several). Each mode auto-generates the plots **and** the text summary **and** the data/table exports (CSV/LaTeX) into a `Plots/` folder. |
-| `Different_Particle_Ratios/` | Stored ensemble datasets (see §13). |
 
 ---
 
@@ -124,14 +120,14 @@ All code lives in the **`qtft`** package; `scripts/` holds thin CLI wrappers.
 ## 4. Quick start — single run
 
 The explicit building blocks are shown below. `Run_Simulation.ipynb` instead calls the one-shot
-`sim.run_one(config)` (see §6), which wraps exactly these steps:
+`sim.run_one(config)`, which wraps exactly these steps:
 
 ```python
 import qtft as sim
 import qtft.analysis as analysis
 import qtft.plotting as plotting
 
-# 1. Configure (current standard values; see §6)
+# 1. Configure (current standard values)
 config = sim.SimulationConfig(
     qt=sim.ParticleConfig("Qt", radius=21.0, diffusion=0.5, cluster_diffusion=0.3),
     ft=sim.ParticleConfig("Ft", radius=6.0, diffusion=1.0, cluster_diffusion=0.7),
@@ -168,7 +164,7 @@ analysis.convert_h5_to_xyz(config.output_file, config.output_file.replace(".h5",
 config.save_json("simulation_config.json")
 ```
 
-`config.output_file` is auto-generated from the parameters if left `None` (see §11).
+`config.output_file` is auto-generated from the parameters if left `None`.
 
 ---
 
@@ -178,8 +174,7 @@ config.save_json("simulation_config.json")
 fully JSON-serializable (`config.save_json(...)` / `SimulationConfig.load_json(...)`,
 `from_dict` / `to_dict` / `to_flat_dict`).
 
-The table below leads with the **current standard values used in the real runs** (the notebook /
-`Simulation_Files_Single_Runs/` datasets). The code dataclass defaults are small smoke-test
+The table below leads with the **current standard values used in the real runs** (the values in the notebook). The code dataclass defaults are small smoke-test
 values — see the footnote.
 
 | Parameter | Meaning | Units | Standard value |
@@ -192,9 +187,9 @@ values — see the footnote.
 | `topology.binding_radius` | reaction capture distance | nm | 27.25 (≈ r_Qt+r_Ft+buffer) |
 | `topology.kon` | binding rate | nm³/(ns·part) | 0.001 |
 | `topology.k_bond` | harmonic bond stiffness | kJ/(mol·nm²) | 10.0 |
-| `topology.ft_monovalent` | cap Ft at one bond → single-Qt-star clusters (see §1) | – | `False` |
-| `topology.koff` | bond-breaking rate per edge (deagglomeration phases only, see §1) | 1/ns | 0.0 |
-| `phases` | optional list of `PhaseConfig` for agglomeration↔deagglomeration cycling (see §1); `None` = single run | – | `None` |
+| `topology.ft_monovalent` | cap Ft at one bond → single-Qt-star clusters | – | `False` |
+| `topology.koff` | bond-breaking rate per edge (deagglomeration phases only) | 1/ns | 0.0 |
+| `phases` | optional list of `PhaseConfig` for agglomeration↔deagglomeration cycling; `None` = single run | – | `None` |
 | `lj.epsilon_QtQt/FtFt/QtFt` | well depths for the three free pairs | kJ/mol | 1.5 / 1.5 / 3.0 |
 | `lj.potential_type` | `"WCA"` (repulsive) or `"LJ"` (attractive) | – | `LJ` for production |
 | `box_size` | cubic box edge | nm | (500, 500, 500) |
@@ -207,7 +202,7 @@ values — see the footnote.
 | `heavy_observable_stride` | cadence for unread heavy observables (forces, virial); `None`=100×`observable_stride` | steps | optional |
 | `kernel`, `n_threads` | `"CPU"`/`"SingleCPU"`, threads | – | CPU, 4+ |
 | `rng_seed` | RNG seed (per-replica in ensembles) | – | varies |
-| `output_file` | trajectory path (`None` = auto, §11) | – | auto |
+| `output_file` | trajectory path (`None` = auto) | – | auto |
 
 > **Code dataclass defaults** (smoke-test only, *not* the real runs): Qt r=1.0 D=5.0,
 > Ft r=0.25 D=15.0, `binding_radius=1.5`, `kon=10.0`, `k_bond=20.0`, all ε=10.0,
@@ -240,7 +235,7 @@ from qtft import EnsembleSimulation
 ensemble = EnsembleSimulation(
     base_config=config,
     n_replicas=10,
-    base_dir="Different_Particle_Ratios",   # output root
+    base_dir="ensembles",   # output root
 )
 
 # Run all replicas locally (parallel), then auto-collect + compute statistics
@@ -254,7 +249,7 @@ plotting.plot_ensemble_structural(stats, structural, cfg, show_individual=True,
                                   save_path="ensemble_structural.svg")
 ```
 
-`run_local` produces an output directory named from the parameter string (§11) containing:
+`run_local` produces an output directory named from the parameter string containing:
 
 ```
 <ensemble_dir>/
@@ -271,7 +266,7 @@ plotting.plot_ensemble_structural(stats, structural, cfg, show_individual=True,
 Reload a finished ensemble with `EnsembleSimulation.load("<ensemble_dir>")`.
 
 **Phased (agglomeration↔deagglomeration) ensembles.** Give `base_config` a `phases` schedule
-(see §1) and run the ensemble exactly as above — replicas inherit cycling because they all run
+and run the ensemble exactly as above — replicas inherit cycling because they all run
 through `run_one()`. Each replica then contains `replica_NNN/phase_000/trajectory.h5 …` instead of a
 single `trajectory.h5`, and result collection automatically stitches the phases per replica onto one
 continuous time axis before averaging, so `ensemble_statistics.json` / `ensemble_structural.npz` keep
@@ -447,8 +442,7 @@ here rather than silently fixed (see `CODE_REVIEW.md` for IDs and history):
   WCA exclusion edge both land at the contact distance `r_i + r_j`, which equals the harmonic
   bond equilibrium length `r0 = r_i + r_j`. Bonded pairs are no longer squeezed by a mismatched
   LJ minimum. (ReaDDy still does not exclude intra-topology pairs from pair potentials, but the
-  bond and LJ minima now coincide.) **Note:** datasets in `Different_Particle_Ratios/` predate
-  this fix and were run under the old `σ = r_i + r_j` convention, so they are not physically
+  bond and LJ minima now coincide.) **Note:** earlier datasets predate this fix and were run under the old `σ = r_i + r_j` convention, so they are not physically
   comparable to runs made after this change.
 - **(P3) Cluster diffusion is a single fixed value, not size-dependent.** `ParticleConfig.cluster_diffusion`
   defaults to the monomer `diffusion`; clusters still do not slow down as `D ∝ 1/R`. The current
@@ -476,41 +470,3 @@ here rather than silently fixed (see `CODE_REVIEW.md` for IDs and history):
   (a fast internal cleanup reaction), so it is indistinguishable from an originally-free particle.
   Note: ReaDDy 2.0.13's built-in `add_topology_dissociation` is bypassed (it is broken in that
   build); `qtft` registers an equivalent custom structural reaction instead.
-
----
-
-## 12. Existing datasets — `Different_Particle_Ratios/`
-
-Each subdirectory is one 10-replica ensemble (layout in §6). All current sets use **200 Qt /
-400 Ft, full LJ**, and mainly vary the binding rate `kon` (and some epsilons / timestep):
-
-| Ensemble directory | kon | dt | total |
-|--------------------|-----|----|-------|
-| `200Qt_400Ft_LJ_eQQ2.5_eFF1.5_eQF2.5_kon1e-05_dt30ps_150us` | 1e-5 | 30 ps | 150 µs |
-| `200Qt_400Ft_LJ_eQQ2.5_eFF1.5_eQF2.5_kon0.001_dt30ps_150us` | 0.001 | 30 ps | 150 µs |
-| `200Qt_400Ft_LJ_eQQ2.5_eFF1.5_eQF2.5_kon0.1_dt30ps_150us` | 0.1 | 30 ps | 150 µs |
-| `200Qt_400Ft_LJ_eQQ2.5_eFF1.5_eQF2.5_kon25_dt20ps_100us` | 25 | 20 ps | 100 µs |
-| `200Qt_400Ft_LJ_eQQ1_eFF1.5_eQF2_kon75_dt10ps_50us` | 75 | 10 ps | 50 µs |
-
-Plus `Plots_Comparison_*/` directories holding cross-ensemble comparison figures and data.
-
-> **Note:** these `Different_Particle_Ratios/` ensembles use the **old** model parameters
-> (42/12 nm radii, ε≈2.5/1.5/2.5) and predate the P2 σ-at-contact fix (§11a), so they are not
-> physically comparable to runs made with the current standard values.
-
-### Single-run parameter exploration — `Simulation_Files_Single_Runs/`
-
-The current single runs sweep the **Qt/Ft particle ratio** at the new standard parameters
-(full `LJ`, `eQQ1.5 / eFF1.5 / eQF3`, `kon0.001`, `dt50ps`, 100 µs). Each is one single run
-(not a 10-replica ensemble) and is stored locally only — this tree is gitignored and not in the
-repo:
-
-| Run directory | n_qt | n_ft |
-|---------------|------|------|
-| `200Qt_200Ft_LJ_eQQ1.5_eFF1.5_eQF3_kon0.001_dt50ps_100us` | 200 | 200 |
-| `200Qt_400Ft_LJ_eQQ1.5_eFF1.5_eQF3_kon0.001_dt50ps_100us` | 200 | 400 |
-| `200Qt_1000Ft_LJ_eQQ1.5_eFF1.5_eQF3_kon0.001_dt50ps_100us` | 200 | 1000 |
-| `200Qt_2000Ft_LJ_eQQ1.5_eFF1.5_eQF3_kon0.001_dt50ps_100us` | 200 | 2000 |
-| `400Qt_200Ft_LJ_eQQ1.5_eFF1.5_eQF3_kon0.001_dt50ps_100us` | 400 | 200 |
-| `600Qt_200Ft_LJ_eQQ1.5_eFF1.5_eQF3_kon0.001_dt50ps_100us` | 600 | 200 |
-| `600Qt_50Ft_LJ_eQQ1.5_eFF1.5_eQF3_kon0.001_dt50ps_100us` | 600 | 50 |

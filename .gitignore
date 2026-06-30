@@ -49,4 +49,4 @@ venv/
 .DS_Store
 .vscode/
 .idea/
-tools/smoke_out/
+tools/
