@@ -420,7 +420,7 @@ removed; pass `cleanup_empty=False` to skip). You can also call that helper dire
 ## 11. Limitations
 
 These are deliberate simplifications / open questions in the current physical model, documented
-here rather than silently fixed (see `CODE_REVIEW.md` for IDs and history):
+here rather than silently fixed:
 
 - **Cluster diffusion is a single fixed value, not size-dependent.** `ParticleConfig.cluster_diffusion`
   defaults to the monomer `diffusion`; clusters still do not slow down as `D ∝ 1/R`. The current
