@@ -64,6 +64,7 @@ from .analysis import (
     get_cluster_composition,
     get_size_fractions,
     _extract_frame_data,
+    _size_category_key,
 )
 
 # Try to import scipy for interpolation (used in compute_statistics)
@@ -1071,126 +1072,45 @@ echo "Analysis completed at $(date)"
         self.statistics['times'] = common_times
         self.statistics['n_replicas'] = n_replicas
         
-        # Helper function for interpolation
-        def interpolate_to_common(times, values, common_times):
+        # Interpolation + aggregation helpers (one path for every metric).
+        def interp(times, values):
             if times_identical:
                 return values
-            f = scipy_interpolate.interp1d(times, values, kind='linear', 
+            f = scipy_interpolate.interp1d(times, values, kind='linear',
                                            bounds_error=False, fill_value='extrapolate')
             return f(common_times)
-        
-        # Compute statistics for bonds
-        bonds_matrix = np.array([
-            interpolate_to_common(d['times'], d['n_bonds'], common_times)
-            for d in self.replica_data['bonds']
-        ])
-        self.statistics['bonds_mean'] = np.mean(bonds_matrix, axis=0)
-        self.statistics['bonds_std'] = np.std(bonds_matrix, axis=0)
-        self.statistics['bonds_all'] = bonds_matrix
-        
-        # Compute statistics for energy
-        valid_energy = [d for d in self.replica_data['energy'] if d is not None]
-        if valid_energy:
-            energy_matrix = np.array([
-                interpolate_to_common(d['times'], d['energy'], common_times)
-                for d in valid_energy
-            ])
-            self.statistics['energy_mean'] = np.mean(energy_matrix, axis=0)
-            self.statistics['energy_std'] = np.std(energy_matrix, axis=0)
-            self.statistics['energy_all'] = energy_matrix
-        
-        # Compute statistics for pressure
-        valid_pressure = [d for d in self.replica_data['pressure'] if d is not None]
-        if valid_pressure:
-            pressure_matrix = np.array([
-                interpolate_to_common(d['times'], d['pressure'], common_times)
-                for d in valid_pressure
-            ])
-            self.statistics['pressure_mean'] = np.mean(pressure_matrix, axis=0)
-            self.statistics['pressure_std'] = np.std(pressure_matrix, axis=0)
-            self.statistics['pressure_all'] = pressure_matrix
-        
-        # Compute statistics for particle counts
-        valid_counts = [d for d in self.replica_data['particle_counts'] if d is not None]
-        if valid_counts:
-            # Particle types: Qt, Ft, QtC, FtC (indices 0, 1, 2, 3)
-            for idx, name in enumerate(['qt', 'ft', 'qtc', 'ftc']):
-                count_matrix = np.array([
-                    interpolate_to_common(d['times'], d['counts'][:, idx], common_times)
-                    for d in valid_counts
-                ])
-                self.statistics[f'{name}_count_mean'] = np.mean(count_matrix, axis=0)
-                self.statistics[f'{name}_count_std'] = np.std(count_matrix, axis=0)
-                self.statistics[f'{name}_count_all'] = count_matrix
-            
-            # Also compute total
-            total_matrix = np.array([
-                interpolate_to_common(d['times'], d['counts'].sum(axis=1), common_times)
-                for d in valid_counts
-            ])
-            self.statistics['total_count_mean'] = np.mean(total_matrix, axis=0)
-            self.statistics['total_count_std'] = np.std(total_matrix, axis=0)
-            self.statistics['total_count_all'] = total_matrix
-        
-        # Compute statistics for cluster counts
-        valid_cluster = [d for d in self.replica_data['cluster_stats'] if d is not None]
-        if valid_cluster:
-            # Number of clusters
-            n_clusters_matrix = np.array([
-                interpolate_to_common(d['times'], d['n_clusters'], common_times)
-                for d in valid_cluster
-            ])
-            self.statistics['n_clusters_mean'] = np.mean(n_clusters_matrix, axis=0)
-            self.statistics['n_clusters_std'] = np.std(n_clusters_matrix, axis=0)
-            self.statistics['n_clusters_all'] = n_clusters_matrix
-            
-            # Largest cluster (note: get_cluster_statistics returns 'max_sizes')
-            largest_matrix = np.array([
-                interpolate_to_common(d['times'], d['max_sizes'], common_times)
-                for d in valid_cluster
-            ])
-            self.statistics['largest_cluster_mean'] = np.mean(largest_matrix, axis=0)
-            self.statistics['largest_cluster_std'] = np.std(largest_matrix, axis=0)
-            self.statistics['largest_cluster_all'] = largest_matrix
-            
-            # Average cluster size (NEW)
-            avg_matrix = np.array([
-                interpolate_to_common(d['times'], d['avg_sizes'], common_times)
-                for d in valid_cluster
-            ])
-            self.statistics['avg_cluster_mean'] = np.mean(avg_matrix, axis=0)
-            self.statistics['avg_cluster_std'] = np.std(avg_matrix, axis=0)
-            self.statistics['avg_cluster_all'] = avg_matrix
-        
-        # Compute statistics for cumulative reactions (NEW)
-        valid_reactions = [d for d in self.replica_data['reaction_counts'] if d is not None]
-        if valid_reactions:
-            reactions_matrix = np.array([
-                interpolate_to_common(d['times'], d['cumulative'], common_times)
-                for d in valid_reactions
-            ])
-            self.statistics['cumulative_reactions_mean'] = np.mean(reactions_matrix, axis=0)
-            self.statistics['cumulative_reactions_std'] = np.std(reactions_matrix, axis=0)
-            self.statistics['cumulative_reactions_all'] = reactions_matrix
-        
-        # Compute statistics for kinetics (fraction bound)
-        # Note: get_binding_kinetics returns 'fraction_bound_qt' and 'fraction_bound_ft'
-        # We compute an overall fraction bound as the average
-        valid_kinetics = [d for d in self.replica_data['kinetics'] if d is not None]
-        if valid_kinetics:
-            # Use average of Qt and Ft fraction bound
-            fraction_matrix = np.array([
-                interpolate_to_common(
-                    d['times'], 
-                    (d['fraction_bound_qt'] + d['fraction_bound_ft']) / 2, 
-                    common_times
-                )
-                for d in valid_kinetics
-            ])
-            self.statistics['fraction_bound_mean'] = np.mean(fraction_matrix, axis=0)
-            self.statistics['fraction_bound_std'] = np.std(fraction_matrix, axis=0)
-            self.statistics['fraction_bound_all'] = fraction_matrix
-        
+
+        def agg(source_list, getter, name):
+            """Stack one metric across replicas (skipping None) into mean/std/all arrays."""
+            valid = [d for d in source_list if d is not None]
+            if not valid:
+                return
+            matrix = np.array([interp(d['times'], getter(d)) for d in valid])
+            self.statistics[f'{name}_mean'] = np.mean(matrix, axis=0)
+            self.statistics[f'{name}_std'] = np.std(matrix, axis=0)
+            self.statistics[f'{name}_all'] = matrix
+
+        rd = self.replica_data
+        agg(rd['bonds'], lambda d: d['n_bonds'], 'bonds')
+        agg(rd['energy'], lambda d: d['energy'], 'energy')
+        agg(rd['pressure'], lambda d: d['pressure'], 'pressure')
+
+        # Particle counts: Qt, Ft, QtC, FtC (indices 0..3), then the total.
+        for idx, name in enumerate(['qt', 'ft', 'qtc', 'ftc']):
+            agg(rd['particle_counts'], lambda d, idx=idx: d['counts'][:, idx], f'{name}_count')
+        agg(rd['particle_counts'], lambda d: d['counts'].sum(axis=1), 'total_count')
+
+        # Cluster statistics (get_cluster_statistics returns 'max_sizes' / 'avg_sizes').
+        agg(rd['cluster_stats'], lambda d: d['n_clusters'], 'n_clusters')
+        agg(rd['cluster_stats'], lambda d: d['max_sizes'], 'largest_cluster')
+        agg(rd['cluster_stats'], lambda d: d['avg_sizes'], 'avg_cluster')
+
+        agg(rd['reaction_counts'], lambda d: d['cumulative'], 'cumulative_reactions')
+
+        # Fraction bound = mean of the Qt and Ft fraction bound.
+        agg(rd['kinetics'], lambda d: (d['fraction_bound_qt'] + d['fraction_bound_ft']) / 2,
+            'fraction_bound')
+
         print("✓ Statistics computed")
     
     def compute_summary_metrics(self, percolation_threshold: float = 0.5):
@@ -1556,7 +1476,7 @@ echo "Analysis completed at $(date)"
                         values.append(v)
                 if values:
                     matrix = np.array(values)
-                    safe_key = cat_name.replace(' ', '_').replace('(', '').replace(')', '').replace('>', 'gt').replace('-', '_')
+                    safe_key = _size_category_key(cat_name)
                     self.structural_statistics[f'size_frac_{safe_key}_mean'] = np.mean(matrix, axis=0)
                     self.structural_statistics[f'size_frac_{safe_key}_std'] = np.std(matrix, axis=0)
             

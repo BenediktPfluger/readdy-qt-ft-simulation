@@ -1600,6 +1600,15 @@ def _get_size_categories(
     return categories
 
 
+def _size_category_key(name: str) -> str:
+    """Sanitize a size-category display name into an NPZ/stat-dict-safe key fragment.
+
+    The producer (ensemble structural statistics) and the consumers (plotting) MUST use
+    this so the ``size_frac_{key}_mean`` / ``_std`` keys always agree. For example
+    ``"Very large (>50)" -> "Very_large_gt50"`` and ``"Large (21-50)" -> "Large_21_50"``.
+    """
+    return (name.replace(' ', '_').replace('(', '').replace(')', '')
+            .replace('>', 'gt').replace('-', '_'))
 
 
 def get_size_fractions(
@@ -2069,6 +2078,42 @@ def convert_h5_to_xyz(
 # ENSEMBLE DATA LOADING FUNCTIONS
 # =============================================================================
 
+def _load_ensemble_files(results_dir: str):
+    """Read the three on-disk ensemble files (shared by both public loaders).
+
+    Returns ``(stats, npz, config, meta)`` where ``stats`` is the statistics JSON with
+    list values converted to ``np.ndarray``, ``npz`` is a plain dict of the structural
+    arrays (``{}`` if absent), ``config`` is the config JSON (``{}`` if absent), and
+    ``meta`` carries the paths / existence flags so callers keep their own error/print
+    behaviour. Raises ``FileNotFoundError`` only if the statistics file is missing.
+    """
+    results_dir = results_dir.rstrip("/") + "/"
+    stats_path = f"{results_dir}ensemble_statistics.json"
+    if not os.path.exists(stats_path):
+        raise FileNotFoundError(f"Statistics file not found: {stats_path}")
+    with open(stats_path, 'r') as f:
+        raw = json.load(f)
+    stats = {k: (np.array(v) if isinstance(v, list) else v) for k, v in raw.items()}
+
+    npz_path = f"{results_dir}ensemble_structural.npz"
+    npz = {}
+    if os.path.exists(npz_path):
+        with np.load(npz_path, allow_pickle=True) as data:
+            npz = {k: data[k] for k in data.files}
+
+    config_path = f"{results_dir}ensemble_config.json"
+    config = {}
+    if os.path.exists(config_path):
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+
+    meta = {
+        'stats_path': stats_path, 'npz_path': npz_path, 'config_path': config_path,
+        'has_npz': os.path.exists(npz_path), 'has_config': os.path.exists(config_path),
+    }
+    return stats, npz, config, meta
+
+
 def load_ensemble_data(results_dir: str) -> Tuple[Dict, Dict, Dict]:
     """
     Load ensemble analysis data from JSON and NPZ files.
@@ -2099,54 +2144,21 @@ def load_ensemble_data(results_dir: str) -> Tuple[Dict, Dict, Dict]:
     >>> stats, structural, config = load_ensemble_data("ensemble_results/")
     >>> plot_ensemble_observables(stats, config, structural)
     """
-    results_dir = results_dir.rstrip("/") + "/"
-    
-    # Load statistics JSON
-    stats_path = f"{results_dir}ensemble_statistics.json"
-    if not os.path.exists(stats_path):
-        raise FileNotFoundError(f"Statistics file not found: {stats_path}")
-    with open(stats_path, 'r') as f:
-        stats = json.load(f)
-    
-    # Convert lists back to numpy arrays for time series data
-    if 'times' in stats:
-        stats['times'] = np.array(stats['times'])
-    
-    time_series_keys = [
-        'bonds', 'energy', 'pressure', 'n_clusters', 'largest_cluster', 
-        'fraction_bound', 'avg_cluster', 'cumulative_reactions',
-        'qt_count', 'ft_count', 'qtc_count', 'ftc_count', 'total_count'
-    ]
-    for key in time_series_keys:
-        for suffix in ['_mean', '_std']:
-            full_key = f'{key}{suffix}'
-            if full_key in stats:
-                stats[full_key] = np.array(stats[full_key])
-    
-    print(f"✓ Loaded statistics from {stats_path}")
-    
-    # Load structural NPZ
-    npz_path = f"{results_dir}ensemble_structural.npz"
-    structural = {}
-    if os.path.exists(npz_path):
-        npz_data = np.load(npz_path, allow_pickle=True)
-        # Convert NpzFile to dict for easier access
-        for key in npz_data.files:
-            structural[key] = npz_data[key]
-        print(f"✓ Loaded structural data from {npz_path}")
+    stats, npz, config, meta = _load_ensemble_files(results_dir)
+    print(f"✓ Loaded statistics from {meta['stats_path']}")
+
+    # All structural arrays (including per-replica *_all) live in `structural`.
+    structural = npz
+    if meta['has_npz']:
+        print(f"✓ Loaded structural data from {meta['npz_path']}")
     else:
-        print(f"  Note: No structural data file found at {npz_path}")
-    
-    # Load config JSON
-    config_path = f"{results_dir}ensemble_config.json"
-    config = {}
-    if os.path.exists(config_path):
-        with open(config_path, 'r') as f:
-            config = json.load(f)
-        print(f"✓ Loaded configuration from {config_path}")
+        print(f"  Note: No structural data file found at {meta['npz_path']}")
+
+    if meta['has_config']:
+        print(f"✓ Loaded configuration from {meta['config_path']}")
     else:
-        print(f"  Note: No config file found at {config_path}")
-    
+        print(f"  Note: No config file found at {meta['config_path']}")
+
     return stats, structural, config
 
 

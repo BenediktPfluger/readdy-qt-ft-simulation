@@ -8,6 +8,9 @@ import os
 
 import numpy as np
 
+from .config import _steps_to_us
+from .analysis import _load_ensemble_files
+
 
 
 
@@ -38,39 +41,13 @@ def load_ensemble_for_comparison(ensemble_dir: str, label: str) -> dict:
     Structural analysis data (morphology, spatial, contacts, composition) is
     loaded into the 'structural' dict.
     """
-    ensemble_dir = ensemble_dir.rstrip("/") + "/"
-    
-    # Load statistics JSON
-    stats_file = f"{ensemble_dir}ensemble_statistics.json"
-    if not os.path.exists(stats_file):
-        raise FileNotFoundError(f"Statistics file not found: {stats_file}")
-    
-    with open(stats_file, 'r') as f:
-        stats_json = json.load(f)
-    
-    # Load config JSON
-    config_file = f"{ensemble_dir}ensemble_config.json"
-    if not os.path.exists(config_file):
-        raise FileNotFoundError(f"Config file not found: {config_file}")
-    
-    with open(config_file, 'r') as f:
-        config = json.load(f)
-    
-    # Convert lists to numpy arrays
-    stats = {}
-    for key, value in stats_json.items():
-        if isinstance(value, list):
-            stats[key] = np.array(value)
-        else:
-            stats[key] = value
-    
-    # Load NPZ file: merge per-replica time-series into stats,
-    # and structural analysis keys into structural dict
-    npz_file = f"{ensemble_dir}ensemble_structural.npz"
-    structural = {}
-    structural_path = npz_file if os.path.exists(npz_file) else None
-    
-    # Per-replica time-series keys that go into stats
+    stats, npz, config, meta = _load_ensemble_files(ensemble_dir)
+    if not meta['has_config']:
+        raise FileNotFoundError(f"Config file not found: {meta['config_path']}")
+
+    structural_path = meta['npz_path'] if meta['has_npz'] else None
+
+    # Per-replica time-series keys that go into stats (the rest of the NPZ is structural).
     time_series_all_keys = {
         'bonds_all', 'energy_all', 'pressure_all', 'n_clusters_all',
         'largest_cluster_all', 'fraction_bound_all', 'avg_cluster_all',
@@ -78,26 +55,22 @@ def load_ensemble_for_comparison(ensemble_dir: str, label: str) -> dict:
         'qt_count_all', 'ft_count_all', 'qtc_count_all', 'ftc_count_all',
         'total_count_all',
     }
-    
-    if structural_path:
-        with np.load(npz_file, allow_pickle=True) as data:
-            for key in data.files:
-                if key.endswith('_all') and key in time_series_all_keys:
-                    # Merge per-replica time-series into stats
-                    stats[key] = data[key]
-                else:
-                    # All other keys go into structural
-                    structural[key] = data[key]
-    
+    structural = {}
+    for key, value in npz.items():
+        if key.endswith('_all') and key in time_series_all_keys:
+            stats[key] = value
+        else:
+            structural[key] = value
+
     # Get timestep for time conversion
     timestep = config.get('timestep', 0.001)
-    
-    # Convert times to microseconds
+
+    # Convert times (step numbers) to microseconds
     if 'times' in stats:
-        times_us = stats['times'] * timestep * 1e-3
+        times_us = _steps_to_us(stats['times'], timestep)
     else:
         times_us = np.array([])
-    
+
     return {
         'label': label,
         'dir': ensemble_dir,

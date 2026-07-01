@@ -56,6 +56,7 @@ from .analysis import (
     _get_size_categories,
     _get_size_category_boundaries,
     _apply_size_category,
+    _size_category_key,
 )
 
 
@@ -1984,7 +1985,7 @@ def plot_ensemble_size_categories(
     # Collect mean fraction arrays in order
     mean_fractions = []
     for cat_name in category_names:
-        safe_key = cat_name.replace(' ', '_').replace('(', '').replace(')', '').replace('>', 'gt').replace('-', '_')
+        safe_key = _size_category_key(cat_name)
         mean_key = f'size_frac_{safe_key}_mean'
         if mean_key in structural:
             mean_fractions.append(np.asarray(structural[mean_key]))
@@ -2075,7 +2076,7 @@ def plot_comparison_size_categories(
         # Collect mean fraction arrays
         mean_fractions = []
         for cat_name in category_names:
-            safe_key = cat_name.replace(' ', '_').replace('(', '').replace(')', '').replace('>', 'gt').replace('-', '_')
+            safe_key = _size_category_key(cat_name)
             mean_key = f'size_frac_{safe_key}_mean'
             if mean_key in structural:
                 mean_fractions.append(np.asarray(structural[mean_key]))
@@ -3042,8 +3043,7 @@ def plot_ensemble_panel(
         category_names = list(structural['size_fractions_category_names'])
         mean_fractions = []
         for cat_name in category_names:
-            safe_key = (cat_name.replace(' ', '_').replace('(', '').replace(')', '')
-                        .replace('>', 'gt').replace('-', '_'))
+            safe_key = _size_category_key(cat_name)
             mean_key = f'size_frac_{safe_key}_mean'
             if mean_key in structural:
                 mean_fractions.append(np.asarray(structural[mean_key]))
