@@ -3,6 +3,7 @@
 Load multiple finished ensembles, diff their parameters, and build/save the
 comparison data structure consumed by qtft.plotting.plot_comparison_* functions.
 """
+import logging
 import json
 import os
 
@@ -11,12 +12,13 @@ import numpy as np
 from .config import _steps_to_us
 from .analysis import _load_ensemble_files
 
-
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
 # ENSEMBLE COMPARISON FUNCTIONS
 # =============================================================================
+
 
 def load_ensemble_for_comparison(ensemble_dir: str, label: str) -> dict:
     """
@@ -99,22 +101,22 @@ def compare_ensembles(ensembles_dict: dict) -> dict:
     dict
         Comparison data structure with all ensembles' data
     """
-    print("=" * 60)
-    print("LOADING ENSEMBLES FOR COMPARISON")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("LOADING ENSEMBLES FOR COMPARISON")
+    logger.info("=" * 60)
     
     ensembles = {}
     
     for label, ensemble_dir in ensembles_dict.items():
-        print(f"\nLoading: {label}")
-        print(f"  Directory: {ensemble_dir}")
+        logger.info(f"\nLoading: {label}")
+        logger.info(f"  Directory: {ensemble_dir}")
         try:
             data = load_ensemble_for_comparison(ensemble_dir, label)
             ensembles[label] = data
             struct_status = "with structural data" if data["structural"] else "basic stats only"
-            print(f"  ✓ Loaded {data['n_replicas']} replicas, {len(data['times_us'])} time points ({struct_status})")
+            logger.info(f"  ✓ Loaded {data['n_replicas']} replicas, {len(data['times_us'])} time points ({struct_status})")
         except Exception as e:
-            print(f"  ✗ Failed to load: {e}")
+            logger.error(f"  ✗ Failed to load: {e}")
             continue
     
     if len(ensembles) < 2:
@@ -256,12 +258,12 @@ def save_comparison_data(comparison: dict, output_dir: str):
     json_path = f"{output_dir}comparison_data.json"
     with open(json_path, 'w') as f:
         json.dump(json_data, f, indent=2)
-    print(f"✓ Saved comparison metadata to {json_path}")
+    logger.info(f"✓ Saved comparison metadata to {json_path}")
     
     # Save NPZ
     npz_path = f"{output_dir}comparison_timeseries.npz"
     np.savez_compressed(npz_path, **npz_data)
-    print(f"✓ Saved comparison time series to {npz_path}")
+    logger.info(f"✓ Saved comparison time series to {npz_path}")
 
 
 def load_comparison_data(output_dir: str) -> dict:
@@ -372,47 +374,47 @@ def run_comparison(ensemble_specs: list, output_dir: str):
     print_parameter_differences(comparison)
     
     # Print detailed summary for each ensemble
-    print("\n" + "=" * 60)
-    print("ENSEMBLE SUMMARIES")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("ENSEMBLE SUMMARIES")
+    logger.info("=" * 60)
     
     for label in comparison['labels']:
         ens = comparison['ensembles'][label]
-        print(f"\n{label}:")
-        print(f"  Directory: {ens.get('dir', 'N/A')}")
-        print(f"  Replicas: {ens['n_replicas']}")
-        print(f"  Time points: {len(ens['times_us'])}")
+        logger.info(f"\n{label}:")
+        logger.info(f"  Directory: {ens.get('dir', 'N/A')}")
+        logger.info(f"  Replicas: {ens['n_replicas']}")
+        logger.info(f"  Time points: {len(ens['times_us'])}")
         if len(ens['times_us']) > 0:
-            print(f"  Duration: {ens['times_us'][-1]:.2f} µs")
+            logger.info(f"  Duration: {ens['times_us'][-1]:.2f} µs")
         
         # Print key config parameters
         config = ens['config']
-        print(f"  Particles: {config.get('n_qt', '?')} Qt + {config.get('n_ft', '?')} Ft")
+        logger.info(f"  Particles: {config.get('n_qt', '?')} Qt + {config.get('n_ft', '?')} Ft")
         
         # Print final values
         stats = ens['stats']
         if 'bonds_mean' in stats and len(stats['bonds_mean']) > 0:
-            print(f"  Final bonds: {stats['bonds_mean'][-1]:.1f} ± {stats.get('bonds_std', [0])[-1]:.1f}")
+            logger.info(f"  Final bonds: {stats['bonds_mean'][-1]:.1f} ± {stats.get('bonds_std', [0])[-1]:.1f}")
         if 'fraction_bound_mean' in stats and len(stats['fraction_bound_mean']) > 0:
             fb = stats['fraction_bound_mean'][-1]
             fb_std = stats.get('fraction_bound_std', [0])[-1]
-            print(f"  Final fraction bound: {fb*100:.1f}% ± {fb_std*100:.1f}%")
+            logger.info(f"  Final fraction bound: {fb*100:.1f}% ± {fb_std*100:.1f}%")
     
     # Save comparison data
-    print("\n" + "=" * 60)
-    print("SAVING COMPARISON DATA")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("SAVING COMPARISON DATA")
+    logger.info("=" * 60)
     save_comparison_data(comparison, output_dir)
     
-    print("\n" + "=" * 60)
-    print("COMPARISON COMPLETE")
-    print("=" * 60)
-    print(f"\nOutput files saved to: {output_dir}")
-    print("\nTo plot in notebook, use:")
-    print(f"  import qtft.comparison as ae")
-    print(f"  import qtft.plotting as plotting")
-    print(f"  comparison = ae.load_comparison_data('{output_dir}')")
-    print(f"  plotting.plot_comparison_summary(comparison)")
+    logger.info("\n" + "=" * 60)
+    logger.info("COMPARISON COMPLETE")
+    logger.info("=" * 60)
+    logger.info(f"\nOutput files saved to: {output_dir}")
+    logger.info("\nTo plot in notebook, use:")
+    logger.info(f"  import qtft.comparison as ae")
+    logger.info(f"  import qtft.plotting as plotting")
+    logger.info(f"  comparison = ae.load_comparison_data('{output_dir}')")
+    logger.info(f"  plotting.plot_comparison_summary(comparison)")
 
     return comparison
 

@@ -1,5 +1,6 @@
 """qtft.system -- ReaDDy ReactionDiffusionSystem builders (species, potentials, topologies)."""
 from __future__ import annotations
+import logging
 
 from typing import Optional
 
@@ -22,6 +23,7 @@ _RETYPE_RATE_FACTOR = 10.0
 # LJ attractive minimum and the WCA exclusion exactly at physical contact, so bonded
 # pairs are not squeezed by a mismatched LJ minimum (resolves caveat P2).
 _SIGMA_AT_CONTACT = 2.0 ** (-1.0 / 6.0)   # ≈ 0.8909
+logger = logging.getLogger(__name__)
 
 
 def create_system(
@@ -103,7 +105,7 @@ def create_system(
                     f"breaking={phase.breaking}, {phase.potential_type})")
     else:
         mode_str = ""
-    print(f"✓ System created: {config.box_size[0]}×{config.box_size[1]}×{config.box_size[2]} nm box{mode_str}")
+    logger.info(f"✓ System created: {config.box_size[0]}×{config.box_size[1]}×{config.box_size[2]} nm box{mode_str}")
 
     return system
 
@@ -118,8 +120,8 @@ def _add_species(system: readdy.ReactionDiffusionSystem, config: SimulationConfi
     system.add_topology_species(config.qt.cluster_name, float(config.qt.cluster_diffusion))
     system.add_topology_species(config.ft.cluster_name, float(config.ft.cluster_diffusion))
     
-    print(f"✓ Species: {config.qt.name}, {config.ft.name}, "
-          f"{config.qt.cluster_name}, {config.ft.cluster_name}")
+    logger.info(f"✓ Species: {config.qt.name}, {config.ft.name}, "
+                f"{config.qt.cluster_name}, {config.ft.cluster_name}")
 
 
 def _add_potentials(
@@ -205,8 +207,8 @@ def _add_potentials(
     add_lj(qt,  ftc, lj.epsilon_QtFtC,   sigma_qf, cutoff_qf)
     
     skip_str = f", {n_skipped} disabled" if n_skipped > 0 else ""
-    print(f"✓ {potential_type} potentials ({n_registered} registered{skip_str}): "
-          f"ε_QQ={lj.epsilon_QtQt}, ε_FF={lj.epsilon_FtFt}, ε_QF={lj.epsilon_QtFt}")
+    logger.info(f"✓ {potential_type} potentials ({n_registered} registered{skip_str}): "
+                f"ε_QQ={lj.epsilon_QtQt}, ε_FF={lj.epsilon_FtFt}, ε_QF={lj.epsilon_QtFt}")
 
 
 def _add_topologies(
@@ -294,7 +296,7 @@ def _add_topologies(
         bits.append(f"dissociation (koff={topo.koff}) + freed-monomer re-typing")
     if not bits:
         bits.append("bonds only, no reactions")
-    print(f"✓ Topology '{topo.name}': k_bond={topo.k_bond}; " + "; ".join(bits))
+    logger.info(f"✓ Topology '{topo.name}': k_bond={topo.k_bond}; " + "; ".join(bits))
 
 
 def _add_breaking(system: readdy.ReactionDiffusionSystem, config: SimulationConfig):

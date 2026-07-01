@@ -28,6 +28,7 @@ Usage:
 """
 
 from __future__ import annotations
+import logging
 
 import json
 import os
@@ -63,6 +64,8 @@ except ImportError:
 # =============================================================================
 # ANALYSIS FUNCTIONS
 # =============================================================================
+logger = logging.getLogger(__name__)
+
 
 def get_cluster_statistics(
     h5_file: str,
@@ -230,14 +233,14 @@ def get_bond_counts(
     
     # Print method summary (unless silent)
     if not silent:
-        print(f"  Bond counting: {primary_method}")
+        logger.info(f"  Bond counting: {primary_method}")
 
     # Print detailed breakdown if verbose
     if verbose and not silent:
-        print(f"    Detailed breakdown:")
-        print(f"      Method 1 (top.edges):       {method_counts['method1_edges']} topologies")
-        print(f"      Method 2 (top.graph.edges): {method_counts['method2_graph']} topologies")
-        print(f"      Method 3 (n-1, tree-exact): {method_counts['method3_fallback']} topologies")
+        logger.info(f"    Detailed breakdown:")
+        logger.info(f"      Method 1 (top.edges):       {method_counts['method1_edges']} topologies")
+        logger.info(f"      Method 2 (top.graph.edges): {method_counts['method2_graph']} topologies")
+        logger.info(f"      Method 3 (n-1, tree-exact): {method_counts['method3_fallback']} topologies")
 
     return {
         "times": np.array(times),
@@ -308,12 +311,12 @@ def _extract_frame_data(
         if len(obs_times) > 0:
             use_particles_observable = True
             if verbose:
-                print("    Using particles observable for data extraction")
+                logger.info("    Using particles observable for data extraction")
     except (KeyError, ValueError, RuntimeError, OSError):
         # Raised when the particles observable was not registered for this trajectory.
         use_particles_observable = False
         if verbose:
-            print("    Using trajectory.read() for data extraction (particles observable not available)")
+            logger.info("    Using trajectory.read() for data extraction (particles observable not available)")
     
     positions_list = []
     types_list = []
@@ -367,7 +370,7 @@ def _extract_frame_data(
         # Method 2: Use trajectory.read() with memory-efficient streaming
         # Instead of loading all frames into memory, we iterate and select
         if verbose:
-            print("    Reading trajectory frames...")
+            logger.info("    Reading trajectory frames...")
         
         # `stride` applies to trajectory frames. Each kept trajectory frame is matched to the
         # topology record at the SAME simulation step by comparing times, instead of assuming
@@ -641,7 +644,7 @@ def get_cluster_morphology(
         mean_rg_normalized : ndarray - mean normalized Rg per frame
     """
     if frame_data is None:
-        print("  Extracting frame data for morphology analysis...")
+        logger.info("  Extracting frame data for morphology analysis...")
         frame_data = _extract_frame_data(h5_file, config, stride=stride)
     
     times = frame_data["times"]
@@ -979,7 +982,7 @@ def get_spatial_distribution(
         box_size : tuple - simulation box dimensions
     """
     if frame_data is None:
-        print("  Extracting frame data for spatial analysis...")
+        logger.info("  Extracting frame data for spatial analysis...")
         frame_data = _extract_frame_data(h5_file, config, stride=stride)
     
     times = frame_data["times"]
@@ -1144,7 +1147,7 @@ def get_contact_analysis(
         sizes_per_cluster : list of ndarray - size of each cluster per frame
     """
     if frame_data is None:
-        print("  Extracting frame data for contact analysis...")
+        logger.info("  Extracting frame data for contact analysis...")
         frame_data = _extract_frame_data(h5_file, config, stride=stride)
     
     times = frame_data["times"]
@@ -1284,7 +1287,7 @@ def get_cluster_composition(
         std_qt_fraction : ndarray - std of Qt fraction per frame
     """
     if frame_data is None:
-        print("  Extracting frame data for composition analysis...")
+        logger.info("  Extracting frame data for composition analysis...")
         frame_data = _extract_frame_data(h5_file, config, stride=stride)
     
     times = frame_data["times"]
@@ -1395,34 +1398,34 @@ def compute_structural_analysis(
         contacts : dict - Coordination numbers and bond counts per cluster
         config : SimulationConfig - The configuration used (for plotting)
     """
-    print("\n" + "=" * 60)
-    print("COMPUTING STRUCTURAL CLUSTER ANALYSIS")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("COMPUTING STRUCTURAL CLUSTER ANALYSIS")
+    logger.info("=" * 60)
     
     # Extract frame data ONCE and share between analysis functions
-    print("\n[1/5] Extracting frame data...")
+    logger.info("\n[1/5] Extracting frame data...")
     frame_data = _extract_frame_data(h5_file, config, stride=stride)
-    print(f"       Extracted {frame_data['n_frames']} frames")
+    logger.info(f"       Extracted {frame_data['n_frames']} frames")
     
     # Run all analyses using shared frame_data
-    print("\n[2/5] Morphology analysis...")
+    logger.info("\n[2/5] Morphology analysis...")
     morphology = get_cluster_morphology(h5_file, config, stride=stride, 
                                          min_cluster_size=min_cluster_size_morphology,
                                          frame_data=frame_data)
     
-    print("\n[3/5] Binding kinetics analysis...")
+    logger.info("\n[3/5] Binding kinetics analysis...")
     kinetics = get_binding_kinetics(h5_file, config)
     
-    print("\n[4/5] Spatial distribution analysis...")
+    logger.info("\n[4/5] Spatial distribution analysis...")
     spatial = get_spatial_distribution(h5_file, config, stride=stride,
                                         min_cluster_size=min_cluster_size_spatial,
                                         frame_data=frame_data)
     
-    print("\n[5/5] Contact analysis...")
+    logger.info("\n[5/5] Contact analysis...")
     contacts = get_contact_analysis(h5_file, config, stride=stride,
                                     frame_data=frame_data)
     
-    print("\n✓ Structural analysis complete")
+    logger.info("\n✓ Structural analysis complete")
     
     return {
         "morphology": morphology,
@@ -1894,7 +1897,7 @@ def combine_phase_trajectories(
                     # trajectory.read() — so drop the group and continue.
                     if name in obs_out:
                         del obs_out[name]
-                    print(f"  (combine: skipped observable '{name}' — dtype not writable by h5py)")
+                    logger.info(f"  (combine: skipped observable '{name}' — dtype not writable by h5py)")
 
         return out_file
     finally:
@@ -2069,7 +2072,7 @@ def convert_h5_to_xyz(
     except OSError:
         pass
     
-    print(f"✓ Exported OVITO-friendly XYZ to {xyz_file}")
+    logger.info(f"✓ Exported OVITO-friendly XYZ to {xyz_file}")
     
     return xyz_file
 
@@ -2145,19 +2148,19 @@ def load_ensemble_data(results_dir: str) -> Tuple[Dict, Dict, Dict]:
     >>> plot_ensemble_observables(stats, structural, config)
     """
     stats, npz, config, meta = _load_ensemble_files(results_dir)
-    print(f"✓ Loaded statistics from {meta['stats_path']}")
+    logger.info(f"✓ Loaded statistics from {meta['stats_path']}")
 
     # All structural arrays (including per-replica *_all) live in `structural`.
     structural = npz
     if meta['has_npz']:
-        print(f"✓ Loaded structural data from {meta['npz_path']}")
+        logger.info(f"✓ Loaded structural data from {meta['npz_path']}")
     else:
-        print(f"  Note: No structural data file found at {meta['npz_path']}")
+        logger.info(f"  Note: No structural data file found at {meta['npz_path']}")
 
     if meta['has_config']:
-        print(f"✓ Loaded configuration from {meta['config_path']}")
+        logger.info(f"✓ Loaded configuration from {meta['config_path']}")
     else:
-        print(f"  Note: No config file found at {meta['config_path']}")
+        logger.info(f"  Note: No config file found at {meta['config_path']}")
 
     return stats, structural, config
 
@@ -2291,14 +2294,14 @@ def save_table_files(df, path_base: str, *, caption: Optional[str] = None,
     tex_path = f"{path_base}.tex"
 
     df.to_csv(csv_path)
-    print(f"✓ Saved table to {csv_path}")
+    logger.info(f"✓ Saved table to {csv_path}")
 
     # escape=True escapes LaTeX specials (notably % -> \%, which would otherwise comment out
     # the line) while leaving the unicode ±, µ and subscripts (t₅₀) untouched — those aren't in
     # pandas' escape set and render directly under a unicode-aware engine (XeLaTeX/LuaLaTeX or
     # utf8 inputenc).
     df.to_latex(tex_path, caption=caption, label=label, escape=True)
-    print(f"✓ Saved table to {tex_path}")
+    logger.info(f"✓ Saved table to {tex_path}")
 
 
 def print_ensemble_summary(stats: Dict, config: Optional[Dict] = None):

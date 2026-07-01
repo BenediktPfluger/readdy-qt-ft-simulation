@@ -36,6 +36,7 @@ Usage:
 """
 
 from __future__ import annotations
+import logging
 
 import json
 import os
@@ -81,6 +82,8 @@ except ImportError:
 # =============================================================================
 # ENSEMBLE SIMULATION CLASS
 # =============================================================================
+logger = logging.getLogger(__name__)
+
 
 def _run_replica_worker(output_dir: str, config_path: str, equilibration_steps: int, replica_idx: int) -> Dict:
     """
@@ -452,9 +455,9 @@ class EnsembleSimulation:
         self.structural_statistics = {}  # For morphology, spatial, contacts, composition
         self.summary_metrics = {}
         
-        print(f"✓ Ensemble created: {self.folder_name}")
-        print(f"  Output directory: {self.output_dir}")
-        print(f"  Replicas: {self.n_replicas}")
+        logger.info(f"✓ Ensemble created: {self.folder_name}")
+        logger.info(f"  Output directory: {self.output_dir}")
+        logger.info(f"  Replicas: {self.n_replicas}")
     
     def _generate_folder_name(self) -> str:
         """Generate folder name from simulation parameters.
@@ -493,7 +496,7 @@ class EnsembleSimulation:
                     "Use overwrite=True to overwrite existing data."
                 )
             else:
-                print(f"Warning: Overwriting existing directory '{self.output_dir}'")
+                logger.warning(f"Warning: Overwriting existing directory '{self.output_dir}'")
         
         # Create directories
         os.makedirs(f"{self.output_dir}configs/", exist_ok=True)
@@ -539,48 +542,48 @@ class EnsembleSimulation:
         self._ensure_directories(overwrite=overwrite)
         self._save_replica_configs()
         
-        print("\n" + "=" * 60)
-        print(f"ENSEMBLE SIMULATION: {self.n_replicas} REPLICAS")
-        print("=" * 60)
+        logger.info("\n" + "=" * 60)
+        logger.info(f"ENSEMBLE SIMULATION: {self.n_replicas} REPLICAS")
+        logger.info("=" * 60)
         
         if parallel:
             self._run_parallel(n_workers, equilibration_steps)
         else:
             self._run_sequential(equilibration_steps)
         
-        print("\n" + "=" * 60)
-        print("ALL REPLICAS COMPLETED")
-        print("=" * 60 + "\n")
+        logger.info("\n" + "=" * 60)
+        logger.info("ALL REPLICAS COMPLETED")
+        logger.info("=" * 60 + "\n")
         
         # Auto-collect results and compute statistics
-        print("=" * 60)
-        print("POST-PROCESSING")
-        print("=" * 60)
+        logger.info("=" * 60)
+        logger.info("POST-PROCESSING")
+        logger.info("=" * 60)
         
         self.collect_results(require_all=False)
         self.compute_statistics()
         self.compute_summary_metrics()
         
         # Compute structural statistics
-        print("\nComputing structural statistics...")
+        logger.info("\nComputing structural statistics...")
         self.compute_structural_statistics(stride=stride)
         
         # Auto-save analysis files
         self.save_for_plotting()
         
-        print("\n" + "=" * 60)
-        print("ENSEMBLE COMPLETE")
-        print("=" * 60)
-        print(f"Output directory: {self.output_dir}")
-        print(f"Analysis files saved for plotting")
-        print("=" * 60 + "\n")
+        logger.info("\n" + "=" * 60)
+        logger.info("ENSEMBLE COMPLETE")
+        logger.info("=" * 60)
+        logger.info(f"Output directory: {self.output_dir}")
+        logger.info(f"Analysis files saved for plotting")
+        logger.info("=" * 60 + "\n")
     
     def _run_sequential(self, equilibration_steps: int):
         """Run replicas sequentially."""
         for i in range(self.n_replicas):
-            print(f"\n{'─' * 60}")
-            print(f"REPLICA {i + 1}/{self.n_replicas} (seed={self.seeds[i]})")
-            print(f"{'─' * 60}")
+            logger.info(f"\n{'─' * 60}")
+            logger.info(f"REPLICA {i + 1}/{self.n_replicas} (seed={self.seeds[i]})")
+            logger.info(f"{'─' * 60}")
             self._run_single_replica(i, equilibration_steps)
     
     def _run_parallel(self, n_workers: Optional[int], equilibration_steps: int):
@@ -592,7 +595,7 @@ class EnsembleSimulation:
         
         n_workers = min(n_workers, self.n_replicas)
         
-        print(f"\nRunning {self.n_replicas} replicas on {n_workers} workers...")
+        logger.info(f"\nRunning {self.n_replicas} replicas on {n_workers} workers...")
         
         # Create arguments for each replica - pass config paths instead of objects
         # This avoids pickling issues with instance methods
@@ -609,9 +612,9 @@ class EnsembleSimulation:
             for result in pool.starmap(_run_replica_worker, args):
                 completed += 1
                 if result['success']:
-                    print(f"  Completed: {completed}/{self.n_replicas} (replica {result['idx']})")
+                    logger.info(f"  Completed: {completed}/{self.n_replicas} (replica {result['idx']})")
                 else:
-                    print(f"  FAILED: {completed}/{self.n_replicas} (replica {result['idx']}): {result['error']}")
+                    logger.info(f"  FAILED: {completed}/{self.n_replicas} (replica {result['idx']}): {result['error']}")
     
     def _run_single_replica(self, replica_idx: int, equilibration_steps: int):
         """Run a single replica simulation."""
@@ -728,22 +731,22 @@ echo "Replica $SLURM_ARRAY_TASK_ID completed at $(date)"
         with open(slurm_path, 'w') as f:
             f.write(slurm_script)
         
-        print(f"✓ Generated SLURM script: {slurm_path}")
-        print(f"✓ Saved {self.n_replicas} config files to {self.output_dir}configs/")
-        print(f"\nFolder structure on cluster:")
-        print(f"  {scripts_dir}/")
-        print(f"  ├── qtft/                  (package)")
-        print(f"  ├── scripts/run_replica.py")
-        print(f"  ├── scripts/analyze_ensemble.py")
-        print(f"  └── {self.folder_name}/")
-        print(f"      ├── configs/")
-        print(f"      ├── logs/")
-        print(f"      ├── replica_000/")
-        print(f"      └── ...")
-        print(f"\nTo run on cluster:")
-        print(f"  1. Upload code (once):        scp -r qtft scripts user@cluster:{scripts_dir}/")
-        print(f"  2. Upload ensemble folder:    scp -r {self.output_dir} user@cluster:{scripts_dir}/")
-        print(f"  3. Submit job:                sbatch {ensemble_path}/submit_ensemble.slurm")
+        logger.info(f"✓ Generated SLURM script: {slurm_path}")
+        logger.info(f"✓ Saved {self.n_replicas} config files to {self.output_dir}configs/")
+        logger.info(f"\nFolder structure on cluster:")
+        logger.info(f"  {scripts_dir}/")
+        logger.info(f"  ├── qtft/                  (package)")
+        logger.info(f"  ├── scripts/run_replica.py")
+        logger.info(f"  ├── scripts/analyze_ensemble.py")
+        logger.info(f"  └── {self.folder_name}/")
+        logger.info(f"      ├── configs/")
+        logger.info(f"      ├── logs/")
+        logger.info(f"      ├── replica_000/")
+        logger.info(f"      └── ...")
+        logger.info(f"\nTo run on cluster:")
+        logger.info(f"  1. Upload code (once):        scp -r qtft scripts user@cluster:{scripts_dir}/")
+        logger.info(f"  2. Upload ensemble folder:    scp -r {self.output_dir} user@cluster:{scripts_dir}/")
+        logger.info(f"  3. Submit job:                sbatch {ensemble_path}/submit_ensemble.slurm")
     
     def generate_analysis_slurm_script(
         self,
@@ -857,13 +860,13 @@ echo "Analysis completed at $(date)"
         with open(slurm_path, 'w') as f:
             f.write(slurm_script)
         
-        print(f"✓ Generated analysis SLURM script: {slurm_path}")
-        print(f"\nTo run analysis on cluster (after simulations complete):")
-        print(f"  sbatch {ensemble_path}/submit_analysis.slurm")
-        print(f"\nOutput files will be saved to {ensemble_path}/:")
-        print(f"  - ensemble_statistics.json (basic statistics)")
-        print(f"  - ensemble_structural.npz (structural analysis arrays)")
-        print(f"  - ensemble_config.json (configuration reference)")
+        logger.info(f"✓ Generated analysis SLURM script: {slurm_path}")
+        logger.info(f"\nTo run analysis on cluster (after simulations complete):")
+        logger.info(f"  sbatch {ensemble_path}/submit_analysis.slurm")
+        logger.info(f"\nOutput files will be saved to {ensemble_path}/:")
+        logger.info(f"  - ensemble_statistics.json (basic statistics)")
+        logger.info(f"  - ensemble_structural.npz (structural analysis arrays)")
+        logger.info(f"  - ensemble_config.json (configuration reference)")
     
     def collect_results(self, require_all: bool = False):
         """
@@ -875,9 +878,9 @@ echo "Analysis completed at $(date)"
             If True, raise error if any replica is missing.
             If False, warn and continue with available data.
         """
-        print("\n" + "=" * 60)
-        print("COLLECTING ENSEMBLE RESULTS")
-        print("=" * 60)
+        logger.info("\n" + "=" * 60)
+        logger.info("COLLECTING ENSEMBLE RESULTS")
+        logger.info("=" * 60)
         
         self.replica_data = {
             'bonds': [],
@@ -900,9 +903,9 @@ echo "Analysis completed at $(date)"
                 missing = [f for f in expected if not os.path.exists(f)]
                 if missing:
                     missing_replicas.append(i)
-                    print(f"  Replica {i}: MISSING phase file(s) {missing}")
+                    logger.info(f"  Replica {i}: MISSING phase file(s) {missing}")
                     continue
-                print(f"  Replica {i}: Loading {len(expected)} phases...")
+                logger.info(f"  Replica {i}: Loading {len(expected)} phases...")
                 try:
                     entries = _collect_phased_replica(config)
                     if entries['bonds'] is None:
@@ -917,7 +920,7 @@ echo "Analysis completed at $(date)"
                     self.replica_data['reaction_counts'].append(entries['reaction_counts'])
                     self.replica_data['available_replicas'].append(i)
                 except Exception as e:
-                    print(f"    Error loading phased replica {i}: {e}")
+                    logger.error(f"    Error loading phased replica {i}: {e}")
                     missing_replicas.append(i)
                 continue
 
@@ -925,10 +928,10 @@ echo "Analysis completed at $(date)"
 
             if not os.path.exists(h5_file):
                 missing_replicas.append(i)
-                print(f"  Replica {i}: MISSING ({h5_file})")
+                logger.info(f"  Replica {i}: MISSING ({h5_file})")
                 continue
 
-            print(f"  Replica {i}: Loading...")
+            logger.info(f"  Replica {i}: Loading...")
             
             try:
                 # Open the trajectory once and reuse the handle for every observable
@@ -1012,7 +1015,7 @@ echo "Analysis completed at $(date)"
                 self.replica_data['available_replicas'].append(i)
                 
             except Exception as e:
-                print(f"    Error loading replica {i}: {e}")
+                logger.error(f"    Error loading replica {i}: {e}")
                 missing_replicas.append(i)
         
         n_available = len(self.replica_data['available_replicas'])
@@ -1022,11 +1025,11 @@ echo "Analysis completed at $(date)"
             if require_all:
                 raise RuntimeError(msg)
             else:
-                print(f"\nWarning: {msg}")
-                print(f"Proceeding with {n_available} available replicas.")
+                logger.warning(f"\nWarning: {msg}")
+                logger.info(f"Proceeding with {n_available} available replicas.")
         
         self.results_collected = True
-        print(f"\n✓ Collected data from {n_available}/{self.n_replicas} replicas")
+        logger.info(f"\n✓ Collected data from {n_available}/{self.n_replicas} replicas")
     
     def compute_statistics(self):
         """
@@ -1037,7 +1040,7 @@ echo "Analysis completed at $(date)"
         if not self.results_collected:
             raise RuntimeError("Must call collect_results() before compute_statistics()")
         
-        print("\nComputing ensemble statistics...")
+        logger.info("\nComputing ensemble statistics...")
         
         n_replicas = len(self.replica_data['available_replicas'])
         if n_replicas == 0:
@@ -1055,7 +1058,7 @@ echo "Analysis completed at $(date)"
         
         if times_identical:
             common_times = reference_times
-            print(f"  Time grids identical across replicas ({len(common_times)} points)")
+            logger.info(f"  Time grids identical across replicas ({len(common_times)} points)")
         else:
             # Interpolate to common grid
             if not SCIPY_AVAILABLE:
@@ -1067,7 +1070,7 @@ echo "Analysis completed at $(date)"
             t_max = min(t[-1] for t in all_times)
             n_points = min(len(t) for t in all_times)
             common_times = np.linspace(t_min, t_max, n_points)
-            print(f"  Interpolating to common time grid ({n_points} points)")
+            logger.info(f"  Interpolating to common time grid ({n_points} points)")
         
         self.statistics['times'] = common_times
         self.statistics['n_replicas'] = n_replicas
@@ -1111,7 +1114,7 @@ echo "Analysis completed at $(date)"
         agg(rd['kinetics'], lambda d: (d['fraction_bound_qt'] + d['fraction_bound_ft']) / 2,
             'fraction_bound')
 
-        print("✓ Statistics computed")
+        logger.info("✓ Statistics computed")
     
     def compute_summary_metrics(self, percolation_threshold: float = 0.5):
         """
@@ -1326,10 +1329,10 @@ echo "Analysis completed at $(date)"
         if not self.results_collected:
             raise RuntimeError("Must call collect_results() before compute_structural_statistics()")
 
-        print("\n" + "=" * 60)
-        print("COMPUTING ADVANCED STATISTICS")
-        print("=" * 60)
-        print(f"Using stride={stride} (analyzing every {stride}th frame)")
+        logger.info("\n" + "=" * 60)
+        logger.info("COMPUTING ADVANCED STATISTICS")
+        logger.info("=" * 60)
+        logger.info(f"Using stride={stride} (analyzing every {stride}th frame)")
 
         available = self.replica_data['available_replicas']
         n_available = len(available)
@@ -1357,7 +1360,7 @@ echo "Analysis completed at $(date)"
             if n_workers is None:
                 n_workers = min(n_available, cpu_count())
             n_workers = min(n_workers, n_available)
-            print(f"Running structural analysis on {n_workers} workers...")
+            logger.info(f"Running structural analysis on {n_workers} workers...")
 
             task_args = [
                 (i, self.replica_configs[i].output_file,
@@ -1372,24 +1375,24 @@ echo "Analysis completed at $(date)"
                     res = future.result()
                     _store(pos, res)
                     tag = "with errors: " + "; ".join(res['errors']) if res['errors'] else "✓"
-                    print(f"  Replica {available[pos]}: {tag}")
+                    logger.info(f"  Replica {available[pos]}: {tag}")
         else:
             if parallel and is_phased:
-                print("Phased ensemble: running structural analysis sequentially.")
+                logger.info("Phased ensemble: running structural analysis sequentially.")
             for pos, i in enumerate(available):
                 config = self.replica_configs[i]
-                print(f"\n  Replica {i} ({pos + 1}/{n_available}):")
+                logger.info(f"\n  Replica {i} ({pos + 1}/{n_available}):")
                 if config.phases:
                     res = _compute_replica_structural_phased(config, stride)
                 else:
                     res = _compute_replica_structural(config.output_file, config, stride)
                 _store(pos, res)
                 for err in res['errors']:
-                    print(f"    ✗ {err}")
+                    logger.error(f"    ✗ {err}")
                 if not res['errors']:
-                    print(f"    ✓ morphology / spatial / contacts / composition")
+                    logger.info(f"    ✓ morphology / spatial / contacts / composition")
 
-        print("\nProcessing structural data...")
+        logger.info("\nProcessing structural data...")
         
         # Process into ensemble statistics
         self.structural_statistics = {}
@@ -1436,7 +1439,7 @@ echo "Analysis completed at $(date)"
             self.structural_statistics['mean_composition_all'] = self.structural_statistics.pop('mean_qt_fraction_all')
         
         # Compute size fractions per replica
-        print("  Computing size fractions...")
+        logger.info("  Computing size fractions...")
         size_fraction_data = []
         for idx, i in enumerate(available):
             config = self.replica_configs[i]
@@ -1447,7 +1450,7 @@ echo "Analysis completed at $(date)"
                     sf = get_size_fractions(config.output_file, config)
                 size_fraction_data.append(sf)
             except Exception as e:
-                print(f"    ✗ Size fractions failed for replica {i}: {e}")
+                logger.error(f"    ✗ Size fractions failed for replica {i}: {e}")
                 size_fraction_data.append(None)
         
         valid_sf = [d for d in size_fraction_data if d is not None]
@@ -1480,7 +1483,7 @@ echo "Analysis completed at $(date)"
                     self.structural_statistics[f'size_frac_{safe_key}_mean'] = np.mean(matrix, axis=0)
                     self.structural_statistics[f'size_frac_{safe_key}_std'] = np.std(matrix, axis=0)
             
-            print(f"    ✓ Size fractions ({len(category_names)} categories)")
+            logger.info(f"    ✓ Size fractions ({len(category_names)} categories)")
         
         # Add final frame values for histograms
         valid_morph = [d for d in morphology_data if d is not None]
@@ -1517,7 +1520,7 @@ echo "Analysis completed at $(date)"
                 self.structural_statistics['composition_vs_size_fractions'] = np.array(all_fractions)
                 self.structural_statistics['composition_vs_size_sizes'] = np.array(all_sizes)
         
-        print("✓ Structural statistics computed")
+        logger.info("✓ Structural statistics computed")
     
     def save_statistics(self, filepath: str):
         """
@@ -1546,7 +1549,7 @@ echo "Analysis completed at $(date)"
         with open(filepath, 'w') as f:
             json.dump(stats_json, f, indent=2)
         
-        print(f"✓ Saved statistics to {filepath}")
+        logger.info(f"✓ Saved statistics to {filepath}")
     
     def save_state(self, filepath: str):
         """
@@ -1584,7 +1587,7 @@ echo "Analysis completed at $(date)"
         with open(filepath, 'w') as f:
             json.dump(state, f, indent=2)
         
-        print(f"✓ Saved ensemble state to {filepath}")
+        logger.info(f"✓ Saved ensemble state to {filepath}")
     
     def save_for_plotting(self, output_dir: Optional[str] = None):
         """
@@ -1651,13 +1654,13 @@ echo "Analysis completed at $(date)"
         stats_path = f"{save_dir}ensemble_statistics.json"
         with open(stats_path, 'w') as f:
             json.dump(stats_json, f, indent=2)
-        print(f"✓ Saved statistics to {stats_path}")
+        logger.info(f"✓ Saved statistics to {stats_path}")
         
         # === Save ensemble_config.json ===
         config_path = f"{save_dir}ensemble_config.json"
         with open(config_path, 'w') as f:
             json.dump(self.base_config.to_dict(), f, indent=2)
-        print(f"✓ Saved configuration to {config_path}")
+        logger.info(f"✓ Saved configuration to {config_path}")
         
         # === Save ensemble_structural.npz (if structural statistics computed) ===
         npz_data = {
@@ -1701,12 +1704,12 @@ echo "Analysis completed at $(date)"
         
         structural_path = f"{save_dir}ensemble_structural.npz"
         np.savez_compressed(structural_path, **npz_data)
-        print(f"✓ Saved structural data to {structural_path}")
+        logger.info(f"✓ Saved structural data to {structural_path}")
         
         # === Save ensemble_state.json (for EnsembleSimulation.load()) ===
         state_path = f"{save_dir}ensemble_state.json"
         self.save_state(state_path)
-        print(f"✓ Saved ensemble state to {state_path}")
+        logger.info(f"✓ Saved ensemble state to {state_path}")
     
     @classmethod
     def load(cls, dirpath: str) -> "EnsembleSimulation":
@@ -1773,7 +1776,7 @@ echo "Analysis completed at $(date)"
             if 'summary_metrics' in state:
                 ensemble.summary_metrics = state['summary_metrics']
             
-            print(f"✓ Loaded ensemble from {state_file}")
+            logger.info(f"✓ Loaded ensemble from {state_file}")
             return ensemble
         
         # Otherwise, reconstruct from config files
@@ -1817,6 +1820,6 @@ echo "Analysis completed at $(date)"
         ensemble.structural_statistics = {}
         ensemble.summary_metrics = {}
         
-        print(f"✓ Reconstructed ensemble from {len(config_files)} config files")
+        logger.info(f"✓ Reconstructed ensemble from {len(config_files)} config files")
         return ensemble
 

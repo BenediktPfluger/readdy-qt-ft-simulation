@@ -1,5 +1,6 @@
 """qtft.engine -- simulation construction and execution (build, place, run, equilibrate)."""
 from __future__ import annotations
+import logging
 
 import os
 from typing import Optional, Tuple
@@ -9,6 +10,7 @@ import readdy
 
 from .config import SimulationConfig
 from .system import create_system
+logger = logging.getLogger(__name__)
 
 
 def _make_particle_rngs(seed: int) -> Tuple:
@@ -62,7 +64,7 @@ def cleanup_empty_run_dirs(root: str) -> list:
         except OSError:
             pass
     if removed:
-        print(f"✓ Removed {len(removed)} empty leftover dir(s) under {root}")
+        logger.info(f"✓ Removed {len(removed)} empty leftover dir(s) under {root}")
     return removed
 
 
@@ -130,7 +132,7 @@ def create_simulation(
     if os.path.exists(out_file):
         if overwrite:
             os.remove(out_file)
-            print(f"✓ Removed existing file: {out_file}")
+            logger.info(f"✓ Removed existing file: {out_file}")
         else:
             raise FileExistsError(
                 f"Output file exists: {out_file}. "
@@ -162,7 +164,7 @@ def create_simulation(
     # Register observables
     _register_observables(simulation, config)
     
-    print(f"✓ Simulation created: {config.kernel} kernel, {config.n_threads} threads")
+    logger.info(f"✓ Simulation created: {config.kernel} kernel, {config.n_threads} threads")
     
     return simulation
 
@@ -215,8 +217,8 @@ def _register_observables(simulation: readdy.Simulation, config: SimulationConfi
         particle_to_density=1.0 / (box[0] * box[1] * box[2])
     )
     
-    print(f"✓ Observables registered (stride={stride}, "
-          f"forces/virial stride={heavy_stride}{particles_obs_str})")
+    logger.info(f"✓ Observables registered (stride={stride}, "
+                f"forces/virial stride={heavy_stride}{particles_obs_str})")
 
 
 def place_particles(
@@ -274,7 +276,7 @@ def place_particles(
     for p in pos_ft:
         simulation.add_topology(config.topology.name, [config.ft.name], p.reshape(1, 3))
     
-    print(f"✓ Placed {config.n_qt} Qt ({placement_qt}) + {config.n_ft} Ft ({placement_ft}) particles")
+    logger.info(f"✓ Placed {config.n_qt} Qt ({placement_qt}) + {config.n_ft} Ft ({placement_ft}) particles")
     
     return pos_qt, pos_ft
 
@@ -302,18 +304,18 @@ def run_simulation(
         Trajectory object for analysis
     """
     if show_progress:
-        print(f"\n{'=' * 60}")
-        print(f"RUNNING SIMULATION")
-        print(f"  Particles: {config.n_qt} Qt + {config.n_ft} Ft")
-        print(f"  Duration: {config.total_simulation_time_us:.1f} µs ({config.n_steps:,} steps)")
-        print(f"{'=' * 60}\n")
+        logger.info(f"\n{'=' * 60}")
+        logger.info(f"RUNNING SIMULATION")
+        logger.info(f"  Particles: {config.n_qt} Qt + {config.n_ft} Ft")
+        logger.info(f"  Duration: {config.total_simulation_time_us:.1f} µs ({config.n_steps:,} steps)")
+        logger.info(f"{'=' * 60}\n")
     
     simulation.run(int(config.n_steps), float(config.timestep))
     
     if show_progress:
-        print(f"\n{'=' * 60}")
-        print("SIMULATION COMPLETE")
-        print(f"{'=' * 60}\n")
+        logger.info(f"\n{'=' * 60}")
+        logger.info("SIMULATION COMPLETE")
+        logger.info(f"{'=' * 60}\n")
     
     # Load trajectory
     if not os.path.exists(config.output_file):
@@ -355,11 +357,11 @@ def equilibrate_system(
     >>> place_particles(simulation, config, positions_qt=pos_qt, positions_ft=pos_ft)
     >>> trajectory = run_simulation(simulation, config)
     """
-    print(f"\n{'=' * 60}")
-    print("EQUILIBRATION")
-    print(f"  Running {n_steps:,} steps without reactions "
-          f"({config.equilibration_potential} potential)")
-    print(f"{'=' * 60}\n")
+    logger.info(f"\n{'=' * 60}")
+    logger.info("EQUILIBRATION")
+    logger.info(f"  Running {n_steps:,} steps without reactions "
+                f"({config.equilibration_potential} potential)")
+    logger.info(f"{'=' * 60}\n")
     
     # Create system in equilibration mode (no reactions)
     system = create_system(config, equilibration_mode=True)
@@ -392,10 +394,10 @@ def equilibrate_system(
     for p in pos_ft:
         eq_simulation.add_topology(config.topology.name, [config.ft.name], p.reshape(1, 3))
     
-    print(f"✓ Placed {config.n_qt} Qt + {config.n_ft} Ft particles (random)")
+    logger.info(f"✓ Placed {config.n_qt} Qt + {config.n_ft} Ft particles (random)")
     
     # Run equilibration
-    print(f"  Running equilibration...")
+    logger.info(f"  Running equilibration...")
     eq_simulation.run(int(n_steps), float(config.timestep))
     
     # Extract final positions from the simulation context
@@ -419,10 +421,10 @@ def equilibrate_system(
     positions_qt = np.array(qt_positions)
     positions_ft = np.array(ft_positions)
     
-    print(f"\n{'=' * 60}")
-    print("EQUILIBRATION COMPLETE")
-    print(f"  Retrieved {len(positions_qt)} Qt + {len(positions_ft)} Ft positions")
-    print(f"{'=' * 60}\n")
+    logger.info(f"\n{'=' * 60}")
+    logger.info("EQUILIBRATION COMPLETE")
+    logger.info(f"  Retrieved {len(positions_qt)} Qt + {len(positions_ft)} Ft positions")
+    logger.info(f"{'=' * 60}\n")
 
     return positions_qt, positions_ft
 
@@ -567,12 +569,12 @@ def run_phased(
 
         if show_progress:
             ph_us = phase.n_steps * config.timestep * 1e-3
-            print(f"\n{'=' * 60}")
-            print(f"PHASE {i + 1}/{len(config.phases)}: {phase.name}")
-            print(f"  {phase.n_steps:,} steps ({ph_us:.1f} µs), "
-                  f"binding={phase.binding}, breaking={phase.breaking}, "
-                  f"potential={phase.potential_type}")
-            print(f"{'=' * 60}\n")
+            logger.info(f"\n{'=' * 60}")
+            logger.info(f"PHASE {i + 1}/{len(config.phases)}: {phase.name}")
+            logger.info(f"  {phase.n_steps:,} steps ({ph_us:.1f} µs), "
+                        f"binding={phase.binding}, breaking={phase.breaking}, "
+                        f"potential={phase.potential_type}")
+            logger.info(f"{'=' * 60}\n")
 
         system = create_system(config, phase=phase)
         simulation = create_simulation(system, config, overwrite=overwrite, output_file=out_file)
@@ -587,7 +589,7 @@ def run_phased(
             place_particles(simulation, config, positions_qt=pos_qt, positions_ft=pos_ft)
         else:
             simulation.load_particles_from_latest_checkpoint(prev_checkpoint_dir)
-            print(f"✓ Loaded state (positions + bonds) from {prev_checkpoint_dir}")
+            logger.info(f"✓ Loaded state (positions + bonds) from {prev_checkpoint_dir}")
 
         simulation.run(int(phase.n_steps), float(config.timestep))
 
@@ -609,11 +611,11 @@ def run_phased(
         prev_checkpoint_dir = checkpoint_dir
 
     if show_progress:
-        print(f"\n{'=' * 60}")
-        print("PHASED RUN COMPLETE")
-        print(f"  {len(results)} phases, {step_offset:,} total steps -> "
-              f"{step_offset * config.timestep * 1e-3:.1f} µs")
-        print(f"{'=' * 60}\n")
+        logger.info(f"\n{'=' * 60}")
+        logger.info("PHASED RUN COMPLETE")
+        logger.info(f"  {len(results)} phases, {step_offset:,} total steps -> "
+                    f"{step_offset * config.timestep * 1e-3:.1f} µs")
+        logger.info(f"{'=' * 60}\n")
 
     # Stitch the per-phase trajectories into one continuous ReaDDy trajectory (kept
     # alongside the per-phase files). Imported lazily to keep engine import light.
@@ -625,9 +627,9 @@ def run_phased(
             combine_phase_trajectories(
                 phase_files, combined_path, step_offsets=config.phase_step_offsets
             )
-            print(f"✓ Combined trajectory written: {combined_path}")
+            logger.info(f"✓ Combined trajectory written: {combined_path}")
         except Exception as e:
-            print(f"Warning: could not write combined trajectory: {e}")
+            logger.warning(f"Warning: could not write combined trajectory: {e}")
             combined_path = None
     if results:
         results[0]["combined"] = combined_path
