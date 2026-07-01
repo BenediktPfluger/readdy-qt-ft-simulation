@@ -13,6 +13,13 @@ configure ─▶ equilibrate (WCA, no reactions) ─▶ production (LJ + reactio
           ─▶ analyze trajectory ─▶ plot ─▶ (ensemble averaging / cross-ensemble comparison)
 ```
 
+<p align="center">
+  <img src="docs/images/simulation_timeseries.png" alt="Qt–Ft agglomeration over time: initially dispersed Qt (green) and Ft (purple) particles bind into growing clusters (QtC blue, FtC red) by 100 µs" width="100%">
+</p>
+
+<p align="center"><em>A single 100 µs run (OVITO render): free Qt (green) and Ft (purple) start dispersed and
+progressively bind into growing clusters of QtC (blue) and FtC (red). Bottom row is a zoomed detail.</em></p>
+
 ---
 
 ## 1. Physical model
@@ -36,6 +43,14 @@ particles come within `binding_radius`, at rate `kon`:
 | `grow_QtC_Ft_QtFt_Cluster` | `QtC + Ft → QtC–FtC`              | cluster captures a free Ft |
 | `grow_FtC_Qt_QtFt_Cluster` | `FtC + Qt → FtC–QtC`              | cluster captures a free Qt |
 | `merge_QtC_FtC_QtFt_Cluster`| `QtC + FtC → QtC–FtC`            | two clusters merge         |
+
+<p align="center">
+  <img src="docs/images/reaction_types.png" alt="Schematic of the ReaDDy topology reactions: seed, grow, and merge, each firing at rate kon within the binding radius and reversible via koff" width="80%">
+</p>
+
+<p align="center"><em>The topology reactions: a <strong>seed</strong> nucleates a cluster from a free Qt + Ft, <strong>grow</strong>
+reactions capture a free monomer onto an existing cluster, and <strong>merge</strong> joins two clusters — each
+firing at rate k<sub>on</sub> within r<sub>bind</sub> and reversible at rate k<sub>off</sub> in deagglomeration phases.</em></p>
 
 **Monovalent Ft (`topology.ft_monovalent`, default `False`).** ReaDDy has no built-in bond cap;
 valence is governed purely by which particle types appear as reactants. In both `seed` and

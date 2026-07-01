@@ -23,6 +23,10 @@ ensemble_structural.npz
 *.png
 *.pdf
 
+# ...but keep the curated README figures committed
+!docs/images/
+!docs/images/*.png
+
 # Per-replica config dumps live with the data
 configs/
 logs/
