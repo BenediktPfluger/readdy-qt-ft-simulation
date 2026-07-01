@@ -94,8 +94,7 @@ All code lives in the **`qtft`** package; `scripts/` holds thin CLI wrappers.
 | `qtft.engine` | Build + run: `create_simulation`, `place_particles`, `run_simulation`, `equilibrate_system`, and the one-shot `run_one`. |
 | `qtft.ensemble` | `EnsembleSimulation` class — multi-replica orchestration, local/parallel runs, SLURM script generation, result collection, statistics, save/load. |
 | `qtft.analysis` | Matplotlib-free trajectory analysis: cluster stats, bond counts, binding kinetics, morphology (Rg), spatial distribution, contacts, composition, size fractions. Also `convert_h5_to_xyz` (OVITO), `load_ensemble_data`, and numeric results tables (`build_final_state_table`, `save_table_files`). |
-| `qtft.plotting` | All matplotlib plots: single-run, ensemble, and cross-ensemble comparison figures. |
-| `qtft.plot_ensemble_panel` / `qtft.plot_comparison_panel` | Composite "thesis" panel figures (multi-subplot ensemble / cross-ensemble overlays); each writes paired SVG + PNG via `save_path_base`. |
+| `qtft.plotting` | All matplotlib plots: single-run, ensemble, and cross-ensemble comparison figures, including the composite "thesis" panels `plot_ensemble_panel` / `plot_comparison_panel` (each writes paired SVG + PNG via `save_path_base`). |
 | `qtft.comparison` | Cross-ensemble comparison helpers (`compare_ensembles`, `save/load_comparison_data`, `build_comparison_table`, …). |
 | `scripts/analyze_ensemble.py` | CLI to (re)analyze an ensemble directory in parallel; `compare` subcommand. |
 | `scripts/run_replica.py` | CLI to run **one** replica from a config JSON (used locally and by SLURM job arrays). |
@@ -348,22 +347,21 @@ or `comparison.build_comparison_table(comparison)` across ensembles, then
 
 ## 9. Plotting
 
-Driven from `Plot_Simulation_Results.ipynb` (one `MODE`-selected run cell); the plotting functions
-live in `qtft.plotting`, with composite panels in `qtft.plot_ensemble_panel` /
-`qtft.plot_comparison_panel`.
+Driven from `Plot_Simulation_Results.ipynb` (one `MODE`-selected run cell); all plotting functions,
+including the composite panels, live in `qtft.plotting`.
 
 **Single run:** `plot_observables`, `plot_cluster_analysis`, `plot_structural_cluster_analysis`,
 `plot_cluster_composition` (and `plot_phased_kinetics` for agglomeration↔deagglomeration runs).
 
 **Ensemble:** `plot_ensemble_observables`, `plot_ensemble_structural`,
 `plot_ensemble_size_categories` (all support `show_individual=True` to overlay replica traces), or the
-composite `plot_ensemble_panel.plot_ensemble_panel(stats, structural, config, save_path_base=...)`.
+composite `plotting.plot_ensemble_panel(stats, structural, config, save_path_base=...)`.
 
 **Cross-ensemble comparison:** build a comparison with
 `ae.compare_ensembles({label: dir, ...})` (from `qtft.comparison`, imported as `ae`), then:
 `plot_comparison_summary`, `plot_comparison_final_state`, `plot_comparison_structural`,
 `plot_comparison_size_categories`, or the composite
-`plot_comparison_panel.plot_comparison_panel(comparison, save_path_base=...)`. Inspect differing
+`plotting.plot_comparison_panel(comparison, save_path_base=...)`. Inspect differing
 parameters with `ae.print_parameter_differences(comparison)` and persist with
 `ae.save_comparison_data(...)`.
 

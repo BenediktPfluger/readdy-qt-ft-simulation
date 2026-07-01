@@ -38,6 +38,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import readdy
 from matplotlib.colors import LogNorm
+from matplotlib.lines import Line2D
 from matplotlib.ticker import MaxNLocator
 
 # Import from simulation module
@@ -1319,11 +1320,44 @@ def _ensemble_show_no_data(ax):
            transform=ax.transAxes, fontsize=FONTSIZE_TITLE, color='gray')
 
 
+def _ensemble_all_trace(stats: Dict, structural: Optional[Dict], key: str):
+    """Return the per-replica traces array for ``key`` (``{key}_all``), or None.
+
+    Checks ``structural`` first, then ``stats`` (per-replica arrays may live in either
+    depending on the loader). Shared by the ensemble plots and the ensemble panel.
+    """
+    all_key = f'{key}_all'
+    if structural is not None and all_key in structural:
+        return structural[all_key]
+    if all_key in stats:
+        return stats[all_key]
+    return None
+
+
+def _ensemble_struct_ts(structural: Optional[Dict], timestep: float, time_key: str,
+                        mean_key: str, std_key: str, all_key: Optional[str] = None):
+    """Fetch a structural time series and convert its step axis to µs.
+
+    Returns ``(times_us, mean, std, all_data)`` with any present arrays as ndarrays and
+    missing ones as None. Shared by the ensemble structural plot and the ensemble panel.
+    """
+    times = structural.get(time_key) if structural else None
+    mean = structural.get(mean_key) if structural else None
+    std = structural.get(std_key) if structural else None
+    all_data = structural.get(all_key) if (structural and all_key) else None
+    if times is not None:
+        times = _steps_to_us(np.asarray(times), timestep)
+    if mean is not None:
+        mean = np.asarray(mean)
+    if std is not None:
+        std = np.asarray(std)
+    return times, mean, std, all_data
+
 
 def plot_ensemble_observables(
     stats: Dict,
-    config: Dict,
     structural: Optional[Dict] = None,
+    config: Optional[Dict] = None,
     show_individual: bool = False,
     individual_alpha: float = 0.3,
     figsize: Tuple[float, float] = (18, 18),
@@ -1366,24 +1400,16 @@ def plot_ensemble_observables(
     Row 4: [Final Avg Cluster Distribution] [Fraction Bound] [Cumulative Reactions]
     """
     print("\nGenerating ensemble observable plots...")
-    
+
     fig, axes = plt.subplots(4, 3, figsize=figsize)
-    
+
     # Get timestep from config dict for proper time conversion
+    config = config or {}
     timestep = config.get('timestep', 1e-4)  # Default if not found
     times_us = _steps_to_us(np.asarray(stats['times']), timestep)
-    n_replicas = stats['n_replicas']
+    n_replicas = stats.get('n_replicas', 1)
     time_label = "Time (µs)"
-    
-    # Helper to get individual traces
-    def get_all_data(key):
-        all_key = f'{key}_all'
-        if structural is not None and all_key in structural:
-            return structural[all_key]
-        if all_key in stats:
-            return stats[all_key]
-        return None
-    
+
     # ==========================================================================
     # Thermodynamics / bonds (grid cells assigned explicitly per block below)
     # ==========================================================================
@@ -1392,7 +1418,7 @@ def plot_ensemble_observables(
     ax = axes[0, 2]
     if 'bonds_mean' in stats:
         if _ensemble_plot_with_band(ax, times_us, stats['bonds_mean'], stats['bonds_std'],
-                                    'tab:blue', n_replicas, get_all_data('bonds'),
+                                    'tab:blue', n_replicas, _ensemble_all_trace(stats, structural, 'bonds'),
                                     show_individual, individual_alpha):
             ax.legend(loc='lower right', fontsize=FONTSIZE_LEGEND)
     else:
@@ -1406,7 +1432,7 @@ def plot_ensemble_observables(
     ax = axes[0, 0]
     if 'energy_mean' in stats:
         if _ensemble_plot_with_band(ax, times_us, stats['energy_mean'], stats['energy_std'],
-                                    'tab:red', n_replicas, get_all_data('energy'),
+                                    'tab:red', n_replicas, _ensemble_all_trace(stats, structural, 'energy'),
                                     show_individual, individual_alpha):
             ax.legend(loc='upper right', fontsize=FONTSIZE_LEGEND)
     else:
@@ -1420,7 +1446,7 @@ def plot_ensemble_observables(
     ax = axes[0, 1]
     if 'pressure_mean' in stats:
         if _ensemble_plot_with_band(ax, times_us, stats['pressure_mean'], stats['pressure_std'],
-                                    'tab:green', n_replicas, get_all_data('pressure'),
+                                    'tab:green', n_replicas, _ensemble_all_trace(stats, structural, 'pressure'),
                                     show_individual, individual_alpha):
             ax.legend(loc='upper right', fontsize=FONTSIZE_LEGEND)
     else:
@@ -1438,7 +1464,7 @@ def plot_ensemble_observables(
     ax = axes[1, 1]
     if 'n_clusters_mean' in stats:
         if _ensemble_plot_with_band(ax, times_us, stats['n_clusters_mean'], stats['n_clusters_std'],
-                                    'tab:purple', n_replicas, get_all_data('n_clusters'),
+                                    'tab:purple', n_replicas, _ensemble_all_trace(stats, structural, 'n_clusters'),
                                     show_individual, individual_alpha):
             ax.legend(loc='upper right', fontsize=FONTSIZE_LEGEND)
     else:
@@ -1452,7 +1478,7 @@ def plot_ensemble_observables(
     ax = axes[2, 0]
     if 'largest_cluster_mean' in stats:
         if _ensemble_plot_with_band(ax, times_us, stats['largest_cluster_mean'], stats['largest_cluster_std'],
-                                    'tab:orange', n_replicas, get_all_data('largest_cluster'),
+                                    'tab:orange', n_replicas, _ensemble_all_trace(stats, structural, 'largest_cluster'),
                                     show_individual, individual_alpha):
             ax.legend(loc='lower right', fontsize=FONTSIZE_LEGEND)
     else:
@@ -1466,7 +1492,7 @@ def plot_ensemble_observables(
     ax = axes[3, 1]
     if 'fraction_bound_mean' in stats:
         if _ensemble_plot_with_band(ax, times_us, stats['fraction_bound_mean'], stats['fraction_bound_std'],
-                                    'tab:cyan', n_replicas, get_all_data('fraction_bound'),
+                                    'tab:cyan', n_replicas, _ensemble_all_trace(stats, structural, 'fraction_bound'),
                                     show_individual, individual_alpha):
             ax.legend(loc='lower right', fontsize=FONTSIZE_LEGEND)
     else:
@@ -1511,7 +1537,7 @@ def plot_ensemble_observables(
     if 'cumulative_reactions_mean' in stats:
         if _ensemble_plot_with_band(ax, times_us, stats['cumulative_reactions_mean'], 
                                     stats['cumulative_reactions_std'],
-                                    'tab:brown', n_replicas, get_all_data('cumulative_reactions'),
+                                    'tab:brown', n_replicas, _ensemble_all_trace(stats, structural, 'cumulative_reactions'),
                                     show_individual, individual_alpha):
             ax.legend(loc='lower right', fontsize=FONTSIZE_LEGEND)
     else:
@@ -1525,7 +1551,7 @@ def plot_ensemble_observables(
     ax = axes[1, 2]
     if 'avg_cluster_mean' in stats:
         if _ensemble_plot_with_band(ax, times_us, stats['avg_cluster_mean'], stats['avg_cluster_std'],
-                                    'tab:olive', n_replicas, get_all_data('avg_cluster'),
+                                    'tab:olive', n_replicas, _ensemble_all_trace(stats, structural, 'avg_cluster'),
                                     show_individual, individual_alpha):
             ax.legend(loc='lower right', fontsize=FONTSIZE_LEGEND)
     else:
@@ -1673,31 +1699,16 @@ def plot_ensemble_structural(
     time_label = "Time (µs)"
     
     # Get timestep from config dict for proper time conversion
+    config = config or {}
     timestep = config.get('timestep', 1e-4)  # Default if not found
-    
-    # Helper to get times and data for structural metrics
-    def get_structural_time_series(time_key, mean_key, std_key, all_key=None):
-        times = structural.get(time_key)
-        mean = structural.get(mean_key)
-        std = structural.get(std_key)
-        all_data = structural.get(all_key) if all_key else None
-        
-        if times is not None:
-            times = _steps_to_us(np.asarray(times), timestep)
-        if mean is not None:
-            mean = np.asarray(mean)
-        if std is not None:
-            std = np.asarray(std)
-            
-        return times, mean, std, all_data
-    
+
     # ==========================================================================
     # Row 1: Morphology and Coordination
     # ==========================================================================
     
     # Plot 1: Mean Rg
     ax = axes[0, 0]
-    times, mean, std, all_data = get_structural_time_series(
+    times, mean, std, all_data = _ensemble_struct_ts(structural, timestep, 
         'morphology_times', 'mean_rg_mean', 'mean_rg_std', 'mean_rg_all')
     if times is not None and mean is not None:
         if _ensemble_plot_with_band(ax, times, mean, std, 'tab:blue', n_replicas,
@@ -1712,9 +1723,9 @@ def plot_ensemble_structural(
     
     # Plot 2: Coordination Number (Qt & Ft fused into one axes)
     ax = axes[0, 1]
-    t_qt, m_qt, s_qt, all_qt = get_structural_time_series(
+    t_qt, m_qt, s_qt, all_qt = _ensemble_struct_ts(structural, timestep, 
         'contacts_times', 'mean_coord_qt_mean', 'mean_coord_qt_std', 'mean_coord_qt_all')
-    t_ft, m_ft, s_ft, all_ft = get_structural_time_series(
+    t_ft, m_ft, s_ft, all_ft = _ensemble_struct_ts(structural, timestep, 
         'contacts_times', 'mean_coord_ft_mean', 'mean_coord_ft_std', 'mean_coord_ft_all')
     coord_plotted = False
     if t_qt is not None and m_qt is not None:
@@ -1740,7 +1751,7 @@ def plot_ensemble_structural(
 
     # Plot 3: NN Distance
     ax = axes[0, 2]
-    times, mean, std, all_data = get_structural_time_series(
+    times, mean, std, all_data = _ensemble_struct_ts(structural, timestep, 
         'spatial_times', 'mean_nn_dist_mean', 'mean_nn_dist_std', 'mean_nn_dist_all')
     if times is not None and mean is not None:
         if _ensemble_plot_with_band(ax, times, mean, std, 'tab:purple', n_replicas,
@@ -1823,7 +1834,7 @@ def plot_ensemble_structural(
     
     # Plot 7: Mean composition over time
     ax = axes[2, 0]
-    times, mean, std, all_data = get_structural_time_series(
+    times, mean, std, all_data = _ensemble_struct_ts(structural, timestep, 
         'composition_times', 'mean_composition_mean', 'mean_composition_std', 'mean_composition_all')
     if times is not None and mean is not None:
         if _ensemble_plot_with_band(ax, times, mean, std, 'purple', n_replicas,
@@ -2118,6 +2129,153 @@ def _get_show_bands_default(n_ensembles: int, show_bands: bool = None) -> bool:
     return n_ensembles <= 3
 
 
+def _total_particles(ens: dict):
+    """Total particle count N for one ensemble (constant), for ÷N normalization.
+
+    Single source of truth for the normalization denominator (prefers the recorded
+    ``stats['total_count_mean']``, falls back to ``config['n_qt']+['n_ft']``). Returns
+    None if neither is available. Used by both the standalone comparison plots and the
+    comparison panel so their normalized curves agree.
+    """
+    tc = ens['stats'].get('total_count_mean')
+    if tc is not None and len(np.atleast_1d(tc)):
+        n = float(np.asarray(tc).ravel()[0])
+        if n > 0:
+            return n
+    cfg = ens.get('config', {}) or {}
+    if cfg.get('n_qt') is not None and cfg.get('n_ft') is not None:
+        n = float(cfg['n_qt']) + float(cfg['n_ft'])
+        if n > 0:
+            return n
+    return None
+
+
+def _comparison_timeseries(ax, comparison: dict, stat_key: str, ylabel: str, title: str, *,
+                           show_bands: bool, divide_by_N: bool = False) -> bool:
+    """Overlay a basic-stats time series (``ens['stats']``) per ensemble on ``ax``.
+
+    Draws lines/bands + labels/title/grid; the caller places the legend (so standalone and
+    panel can differ). When ``divide_by_N`` is True, mean/std are divided by ``_total_particles``.
+    Returns True if any data was drawn.
+    """
+    labels = comparison['labels']
+    has_data = False
+    for i, label in enumerate(labels):
+        ens = comparison['ensembles'][label]
+        mean_key = f'{stat_key}_mean'
+        std_key = f'{stat_key}_std'
+        if mean_key not in ens['stats']:
+            continue
+        mean_vals = np.asarray(ens['stats'][mean_key], dtype=float)
+        std_vals = np.asarray(ens['stats'].get(std_key, np.zeros_like(mean_vals)), dtype=float)
+        if divide_by_N:
+            N = _total_particles(ens)
+            if not N:
+                continue
+            mean_vals = mean_vals / N
+            std_vals = std_vals / N
+        color = COMPARISON_COLORS[i % len(COMPARISON_COLORS)]
+        ax.plot(ens['times_us'], mean_vals, color=color, linewidth=2, label=label)
+        if show_bands and len(std_vals) == len(mean_vals):
+            ax.fill_between(ens['times_us'], mean_vals - std_vals, mean_vals + std_vals,
+                            color=color, alpha=0.2)
+        has_data = True
+    if not has_data:
+        _ensemble_show_no_data(ax)
+    ax.set_xlabel("Time (µs)", fontsize=FONTSIZE_LABEL)
+    ax.set_ylabel(ylabel, fontsize=FONTSIZE_LABEL)
+    ax.set_title(title, fontsize=FONTSIZE_TITLE, fontweight='bold')
+    ax.grid(True, alpha=0.3)
+    ax.tick_params(labelsize=FONTSIZE_TICK)
+    return has_data
+
+
+def _comparison_struct_ts(ax, comparison: dict, time_key: str, mean_key: str, std_key: str,
+                          ylabel: str, title: str, *, show_bands: bool,
+                          legend_loc: str = 'best') -> bool:
+    """Overlay a structural time series (``ens['structural']``) per ensemble on ``ax``.
+
+    Steps→µs via each ensemble's timestep; guards against mismatched array lengths. Places an
+    inside legend at ``legend_loc``. Returns True if any data was drawn.
+    """
+    labels = comparison['labels']
+    has_data = False
+    for i, label in enumerate(labels):
+        ens = comparison['ensembles'][label]
+        structural = ens.get('structural', {})
+        if time_key not in structural or mean_key not in structural:
+            continue
+        times_us = _steps_to_us(np.asarray(structural[time_key]), ens.get('timestep', 0.001))
+        mean_vals = np.asarray(structural[mean_key])
+        std_vals = np.asarray(structural.get(std_key, np.zeros_like(mean_vals)))
+        min_len = min(len(times_us), len(mean_vals))
+        times_us, mean_vals, std_vals = times_us[:min_len], mean_vals[:min_len], std_vals[:min_len]
+        color = COMPARISON_COLORS[i % len(COMPARISON_COLORS)]
+        ax.plot(times_us, mean_vals, color=color, linewidth=2, label=label)
+        if show_bands:
+            ax.fill_between(times_us, mean_vals - std_vals, mean_vals + std_vals,
+                            color=color, alpha=0.2)
+        has_data = True
+    if not has_data:
+        _ensemble_show_no_data(ax)
+    ax.set_xlabel("Time (µs)", fontsize=FONTSIZE_LABEL)
+    ax.set_ylabel(ylabel, fontsize=FONTSIZE_LABEL)
+    ax.set_title(title, fontsize=FONTSIZE_TITLE, fontweight='bold')
+    ax.grid(True, alpha=0.3)
+    ax.tick_params(labelsize=FONTSIZE_TICK)
+    if has_data:
+        ax.legend(loc=legend_loc, fontsize=FONTSIZE_LEGEND)
+    return has_data
+
+
+def _comparison_coord_fused(ax, comparison: dict, *, show_bands: bool,
+                            legend_loc: str = 'lower right') -> bool:
+    """Overlay Qt (solid) and Ft (dashed) coordination per ensemble in one axes.
+
+    Owns its legend (ensemble colours + a Qt/Ft linestyle key). Returns True if data drawn.
+    """
+    labels = comparison['labels']
+    has_data = False
+    for i, label in enumerate(labels):
+        ens = comparison['ensembles'][label]
+        structural = ens.get('structural', {})
+        if 'contacts_times' not in structural:
+            continue
+        times_us = _steps_to_us(np.asarray(structural['contacts_times']), ens.get('timestep', 0.001))
+        color = COMPARISON_COLORS[i % len(COMPARISON_COLORS)]
+        for mean_key, std_key, ls in (
+            ('mean_coord_qt_mean', 'mean_coord_qt_std', '-'),
+            ('mean_coord_ft_mean', 'mean_coord_ft_std', '--'),
+        ):
+            if mean_key not in structural:
+                continue
+            mean_vals = np.asarray(structural[mean_key])
+            std_vals = np.asarray(structural.get(std_key, np.zeros_like(mean_vals)))
+            min_len = min(len(times_us), len(mean_vals))
+            t, m, s = times_us[:min_len], mean_vals[:min_len], std_vals[:min_len]
+            lbl = label if ls == '-' else '_nolegend_'
+            ax.plot(t, m, color=color, linewidth=2, linestyle=ls, label=lbl)
+            if show_bands:
+                ax.fill_between(t, m - s, m + s, color=color, alpha=0.2)
+            has_data = True
+    if not has_data:
+        _ensemble_show_no_data(ax)
+    ax.set_xlabel("Time (µs)", fontsize=FONTSIZE_LABEL)
+    ax.set_ylabel("Mean Coordination", fontsize=FONTSIZE_LABEL)
+    ax.set_title("Coordination Number", fontsize=FONTSIZE_TITLE, fontweight='bold')
+    ax.grid(True, alpha=0.3)
+    ax.tick_params(labelsize=FONTSIZE_TICK)
+    if has_data:
+        ens_handles, ens_labels = ax.get_legend_handles_labels()
+        style_handles = [
+            Line2D([0], [0], color='black', linestyle='-', linewidth=2),
+            Line2D([0], [0], color='black', linestyle='--', linewidth=2),
+        ]
+        ax.legend(ens_handles + style_handles, ens_labels + ['Qt', 'Ft'],
+                  loc=legend_loc, fontsize=FONTSIZE_LEGEND)
+    return has_data
+
+
 def _plot_comparison_timeseries(
     comparison: dict,
     stat_key: str,
@@ -2155,48 +2313,13 @@ def _plot_comparison_timeseries(
     matplotlib.Figure
     """
     fig, ax = plt.subplots(figsize=figsize)
-    
-    n_ensembles = comparison['n_ensembles']
-    show_bands = _get_show_bands_default(n_ensembles, show_bands)
-    
-    for i, label in enumerate(comparison['labels']):
-        ens = comparison['ensembles'][label]
-        times_us = ens['times_us']
-        
-        mean_key = f'{stat_key}_mean'
-        std_key = f'{stat_key}_std'
-        
-        if mean_key not in ens['stats']:
-            print(f"  Warning: {mean_key} not available for '{label}', skipping")
-            continue
-        
-        mean_vals = ens['stats'][mean_key]
-        std_vals = ens['stats'].get(std_key, np.zeros_like(mean_vals))
-        
-        # Normalize by particle count if requested
-        if normalize_by_particles:
-            n_particles = ens['config'].get('n_qt', 0) + ens['config'].get('n_ft', 0)
-            if n_particles > 0:
-                mean_vals = mean_vals / n_particles
-                std_vals = std_vals / n_particles
-        
-        color = COMPARISON_COLORS[i % len(COMPARISON_COLORS)]
-        
-        # Plot mean
-        ax.plot(times_us, mean_vals, color=color, linewidth=2, label=label)
-        
-        # Plot error band
-        if show_bands and len(std_vals) == len(mean_vals):
-            ax.fill_between(times_us, mean_vals - std_vals, mean_vals + std_vals,
-                           color=color, alpha=0.2)
-    
-    ax.set_xlabel("Time (µs)", fontsize=FONTSIZE_LABEL)
-    ax.set_ylabel(ylabel, fontsize=FONTSIZE_LABEL)
-    ax.set_title(title, fontsize=FONTSIZE_TITLE, fontweight='bold')
-    ax.legend(loc='center left', bbox_to_anchor=(1.02, 0.5), fontsize=FONTSIZE_LEGEND)
-    ax.grid(True, alpha=0.3)
-    ax.tick_params(labelsize=FONTSIZE_TICK)
-    
+
+    show_bands = _get_show_bands_default(comparison['n_ensembles'], show_bands)
+    has_data = _comparison_timeseries(ax, comparison, stat_key, ylabel, title,
+                                      show_bands=show_bands, divide_by_N=normalize_by_particles)
+    if has_data:
+        ax.legend(loc='center left', bbox_to_anchor=(1.02, 0.5), fontsize=FONTSIZE_LEGEND)
+
     plt.tight_layout()
     
     if save_path:
@@ -2530,140 +2653,46 @@ def plot_comparison_structural(
     fig = plt.figure(figsize=(18, 11))
     gs = fig.add_gridspec(2, 3, hspace=0.35, wspace=0.3)
 
-    n_ensembles = comparison['n_ensembles']
-    show_bands = _get_show_bands_default(n_ensembles, show_bands)
-    labels = comparison['labels']
-
-    def plot_structural_timeseries(ax, time_key, mean_key, std_key, ylabel, title,
-                                   legend_loc='best'):
-        """Plot a structural time-series from ens['structural'] data."""
-        has_data = False
-        for i, label in enumerate(labels):
-            ens = comparison['ensembles'][label]
-            structural = ens.get('structural', {})
-            
-            if time_key not in structural or mean_key not in structural:
-                continue
-            
-            times_steps = np.asarray(structural[time_key])
-            timestep = ens.get('timestep', 0.001)
-            times_us = _steps_to_us(times_steps, timestep)
-            
-            mean_vals = np.asarray(structural[mean_key])
-            std_vals = np.asarray(structural.get(std_key, np.zeros_like(mean_vals)))
-            
-            # Ensure arrays match in length (take minimum)
-            min_len = min(len(times_us), len(mean_vals))
-            times_us = times_us[:min_len]
-            mean_vals = mean_vals[:min_len]
-            std_vals = std_vals[:min_len]
-            
-            color = COMPARISON_COLORS[i % len(COMPARISON_COLORS)]
-            
-            ax.plot(times_us, mean_vals, color=color, linewidth=2, label=label)
-            if show_bands:
-                ax.fill_between(times_us, mean_vals - std_vals, mean_vals + std_vals,
-                               color=color, alpha=0.2)
-            has_data = True
-        
-        if not has_data:
-            ax.text(0.5, 0.5, "No data available", ha='center', va='center',
-                   transform=ax.transAxes, fontsize=FONTSIZE_TITLE, color='gray')
-        
-        ax.set_xlabel("Time (µs)", fontsize=FONTSIZE_LABEL)
-        ax.set_ylabel(ylabel, fontsize=FONTSIZE_LABEL)
-        ax.set_title(title, fontsize=FONTSIZE_TITLE, fontweight='bold')
-        ax.grid(True, alpha=0.3)
-        ax.tick_params(labelsize=FONTSIZE_TICK)
-        if has_data:
-            ax.legend(loc=legend_loc, fontsize=FONTSIZE_LEGEND)
-
-    def plot_coord_fused(ax, legend_loc='lower right'):
-        """Overlay Qt (solid) and Ft (dashed) coordination per ensemble in one axes."""
-        from matplotlib.lines import Line2D
-        has_data = False
-        for i, label in enumerate(labels):
-            ens = comparison['ensembles'][label]
-            structural = ens.get('structural', {})
-            if 'contacts_times' not in structural:
-                continue
-
-            times_steps = np.asarray(structural['contacts_times'])
-            timestep = ens.get('timestep', 0.001)
-            times_us = _steps_to_us(times_steps, timestep)
-            color = COMPARISON_COLORS[i % len(COMPARISON_COLORS)]
-
-            for mean_key, std_key, ls in (
-                ('mean_coord_qt_mean', 'mean_coord_qt_std', '-'),
-                ('mean_coord_ft_mean', 'mean_coord_ft_std', '--'),
-            ):
-                if mean_key not in structural:
-                    continue
-                mean_vals = np.asarray(structural[mean_key])
-                std_vals = np.asarray(structural.get(std_key, np.zeros_like(mean_vals)))
-                min_len = min(len(times_us), len(mean_vals))
-                t = times_us[:min_len]
-                m = mean_vals[:min_len]
-                s = std_vals[:min_len]
-                # Only the solid (Qt) line carries the ensemble label
-                lbl = label if ls == '-' else '_nolegend_'
-                ax.plot(t, m, color=color, linewidth=2, linestyle=ls, label=lbl)
-                if show_bands:
-                    ax.fill_between(t, m - s, m + s, color=color, alpha=0.2)
-                has_data = True
-
-        if not has_data:
-            ax.text(0.5, 0.5, "No data available", ha='center', va='center',
-                   transform=ax.transAxes, fontsize=FONTSIZE_TITLE, color='gray')
-
-        ax.set_xlabel("Time (µs)", fontsize=FONTSIZE_LABEL)
-        ax.set_ylabel("Mean Coordination", fontsize=FONTSIZE_LABEL)
-        ax.set_title("Coordination Number", fontsize=FONTSIZE_TITLE, fontweight='bold')
-        ax.grid(True, alpha=0.3)
-        ax.tick_params(labelsize=FONTSIZE_TICK)
-        if has_data:
-            # Ensemble colours (solid lines) + a linestyle key (Qt solid / Ft dashed)
-            ens_handles, ens_labels = ax.get_legend_handles_labels()
-            style_handles = [
-                Line2D([0], [0], color='black', linestyle='-', linewidth=2),
-                Line2D([0], [0], color='black', linestyle='--', linewidth=2),
-            ]
-            ax.legend(ens_handles + style_handles, ens_labels + ['Qt', 'Ft'],
-                      loc=legend_loc, fontsize=FONTSIZE_LEGEND)
+    show_bands = _get_show_bands_default(comparison['n_ensembles'], show_bands)
 
     # ======================================================================
     # Row 1: Coordination (Qt & Ft), Mean Composition, Inter-Cluster NN
     # ======================================================================
-    ax1 = fig.add_subplot(gs[0, 0])
-    plot_coord_fused(ax1, legend_loc='lower right')
+    _comparison_coord_fused(fig.add_subplot(gs[0, 0]), comparison,
+                            show_bands=show_bands, legend_loc='lower right')
 
-    ax2 = fig.add_subplot(gs[0, 1])
-    plot_structural_timeseries(
-        ax2, 'composition_times', 'mean_composition_mean', 'mean_composition_std',
-        'Mean Qt Fraction', 'Mean Cluster Composition', legend_loc='lower right')
+    _comparison_struct_ts(
+        fig.add_subplot(gs[0, 1]), comparison,
+        'composition_times', 'mean_composition_mean', 'mean_composition_std',
+        'Mean Qt Fraction', 'Mean Cluster Composition',
+        show_bands=show_bands, legend_loc='lower right')
 
-    ax3 = fig.add_subplot(gs[0, 2])
-    plot_structural_timeseries(
-        ax3, 'spatial_times', 'mean_nn_dist_mean', 'mean_nn_dist_std',
-        'Inter-Cluster NN Dist (nm)', 'Inter-Cluster NN Distance')
+    _comparison_struct_ts(
+        fig.add_subplot(gs[0, 2]), comparison,
+        'spatial_times', 'mean_nn_dist_mean', 'mean_nn_dist_std',
+        'Inter-Cluster NN Dist (nm)', 'Inter-Cluster NN Distance',
+        show_bands=show_bands)
 
     # ======================================================================
     # Row 2: Intra-Cluster NN, Mean Rg, Normalized Rg
     # ======================================================================
-    ax4 = fig.add_subplot(gs[1, 0])
-    plot_structural_timeseries(
-        ax4, 'spatial_times', 'mean_intra_nn_dist_mean', 'mean_intra_nn_dist_std',
-        'Intra-Cluster NN Dist (nm)', 'Intra-Cluster NN Distance')
+    _comparison_struct_ts(
+        fig.add_subplot(gs[1, 0]), comparison,
+        'spatial_times', 'mean_intra_nn_dist_mean', 'mean_intra_nn_dist_std',
+        'Intra-Cluster NN Dist (nm)', 'Intra-Cluster NN Distance',
+        show_bands=show_bands)
 
-    ax5 = fig.add_subplot(gs[1, 1])
-    plot_structural_timeseries(
-        ax5, 'morphology_times', 'mean_rg_mean', 'mean_rg_std',
-        'Mean Rg (nm)', 'Mean Radius of Gyration', legend_loc='upper left')
+    _comparison_struct_ts(
+        fig.add_subplot(gs[1, 1]), comparison,
+        'morphology_times', 'mean_rg_mean', 'mean_rg_std',
+        'Mean Rg (nm)', 'Mean Radius of Gyration',
+        show_bands=show_bands, legend_loc='upper left')
 
-    ax6 = fig.add_subplot(gs[1, 2])
-    plot_structural_timeseries(
-        ax6, 'morphology_times', 'mean_rg_normalized_mean', 'mean_rg_normalized_std',
-        'Rg / Rg_sphere', 'Normalized Rg (Compactness)', legend_loc='lower right')
+    _comparison_struct_ts(
+        fig.add_subplot(gs[1, 2]), comparison,
+        'morphology_times', 'mean_rg_normalized_mean', 'mean_rg_normalized_std',
+        'Rg / Rg_sphere', 'Normalized Rg (Compactness)',
+        show_bands=show_bands, legend_loc='lower right')
 
     plt.tight_layout()
     
@@ -2708,35 +2737,10 @@ def plot_comparison_summary(
     labels = comparison['labels']
     
     def plot_timeseries(ax, stat_key, ylabel, title, legend_loc='best'):
-        """Plot a time series on given axis."""
-        has_data = False
-        for i, label in enumerate(labels):
-            ens = comparison['ensembles'][label]
-            times_us = ens['times_us']
-            mean_key = f'{stat_key}_mean'
-            std_key = f'{stat_key}_std'
-            
-            if mean_key not in ens['stats']:
-                continue
-            
-            mean_vals = ens['stats'][mean_key]
-            std_vals = ens['stats'].get(std_key, np.zeros_like(mean_vals))
-            color = COMPARISON_COLORS[i % len(COMPARISON_COLORS)]
-            
-            ax.plot(times_us, mean_vals, color=color, linewidth=2, label=label)
-            if show_bands:
-                ax.fill_between(times_us, mean_vals - std_vals, mean_vals + std_vals,
-                               color=color, alpha=0.2)
-            has_data = True
-        
-        ax.set_xlabel("Time (µs)", fontsize=FONTSIZE_LABEL)
-        ax.set_ylabel(ylabel, fontsize=FONTSIZE_LABEL)
-        ax.set_title(title, fontsize=FONTSIZE_TITLE, fontweight='bold')
-        ax.grid(True, alpha=0.3)
-        ax.tick_params(labelsize=FONTSIZE_TICK)
-        if has_data:
+        """Thin wrapper over the shared `_comparison_timeseries` helper (inside legend)."""
+        if _comparison_timeseries(ax, comparison, stat_key, ylabel, title, show_bands=show_bands):
             ax.legend(loc=legend_loc, fontsize=FONTSIZE_LEGEND)
-    
+
     def plot_particle_subset(ax, particle_types, type_labels, linestyles, title):
         """Plot a subset of particle counts with two-part legend below.
         
@@ -2938,5 +2942,260 @@ def plot_phased_kinetics(
     if save_path:
         fig.savefig(save_path, bbox_inches="tight", dpi=150)
         print(f"✓ Saved: {save_path}")
+
+    return fig
+
+
+# =============================================================================
+# THESIS PANELS (composite multi-subplot figures; save paired SVG + PNG)
+# =============================================================================
+
+def plot_ensemble_panel(
+    stats: Dict,
+    structural: Dict,
+    config: Dict,
+    *,
+    show_individual: bool = False,
+    individual_alpha: float = 0.3,
+    figsize: Tuple[float, float] = (18, 18),
+    save_path_base: Optional[str] = None,
+) -> plt.Figure:
+    """Curated single-ensemble thesis panel (4x3 grid); optionally saves {base}.svg + .png.
+
+    Layout:
+        Row 1: Energy | Pressure | Number of Bonds
+        Row 2: Particle Counts | Number of Individual Topologies | Average Cluster Size
+        Row 3: Largest Cluster Size | Particles by Size Category | Mean Radius of Gyration
+        Row 4: Coordination Number | Mean Cluster Composition | (empty)
+    """
+    print("\nGenerating ensemble thesis panel...")
+
+    fig, axes = plt.subplots(4, 3, figsize=figsize)
+
+    config = config or {}
+    timestep = config.get('timestep', 1e-4)
+    times_us = _steps_to_us(np.asarray(stats['times']), timestep)
+    n_replicas = stats.get('n_replicas', 1)
+    time_label = "Time (µs)"
+
+    def simple_band(ax, mean_key, std_key, color, title, ylabel, legend_loc='best'):
+        if mean_key in stats:
+            if _ensemble_plot_with_band(ax, times_us, stats[mean_key], stats[std_key],
+                                        color, n_replicas,
+                                        _ensemble_all_trace(stats, structural, mean_key[:-5]),
+                                        show_individual, individual_alpha):
+                ax.legend(loc=legend_loc, fontsize=FONTSIZE_LEGEND)
+        else:
+            _ensemble_show_no_data(ax)
+        ax.set_xlabel(time_label, fontsize=FONTSIZE_LABEL)
+        ax.set_ylabel(ylabel, fontsize=FONTSIZE_LABEL)
+        ax.set_title(title, fontsize=FONTSIZE_TITLE, fontweight='bold')
+        ax.grid(True, alpha=0.3)
+
+    # Row 1
+    simple_band(axes[0, 0], 'energy_mean', 'energy_std', 'tab:red',
+                "Potential Energy", "Energy (kJ/mol)", legend_loc='upper right')
+    simple_band(axes[0, 1], 'pressure_mean', 'pressure_std', 'tab:green',
+                "Pressure", "Pressure (kJ/mol/nm³)", legend_loc='upper right')
+    simple_band(axes[0, 2], 'bonds_mean', 'bonds_std', 'tab:blue',
+                "Number of Bonds", "Number of Bonds", legend_loc='lower right')
+
+    # Row 2: particle counts (multi-line), topologies, avg cluster
+    ax = axes[1, 0]
+    particle_colors = {'qt': 'blue', 'ft': 'red', 'qtc': 'darkblue', 'ftc': 'darkred'}
+    particle_labels = {'qt': 'Qt (free)', 'ft': 'Ft (free)', 'qtc': 'QtC', 'ftc': 'FtC'}
+    has_particle_data = False
+    for ptype in ['qt', 'ft', 'qtc', 'ftc']:
+        key_mean = f'{ptype}_count_mean'
+        key_std = f'{ptype}_count_std'
+        if key_mean in stats:
+            mean = np.asarray(stats[key_mean])
+            std = np.asarray(stats[key_std])
+            ax.plot(times_us, mean, color=particle_colors[ptype],
+                    linewidth=2, label=particle_labels[ptype])
+            ax.fill_between(times_us, mean - std, mean + std,
+                            color=particle_colors[ptype], alpha=0.2)
+            has_particle_data = True
+    if has_particle_data:
+        ax.legend(loc='upper right', fontsize=FONTSIZE_LEGEND)
+    else:
+        _ensemble_show_no_data(ax)
+    ax.set_xlabel(time_label, fontsize=FONTSIZE_LABEL)
+    ax.set_ylabel("Count", fontsize=FONTSIZE_LABEL)
+    ax.set_title("Particle Counts", fontsize=FONTSIZE_TITLE, fontweight='bold')
+    ax.grid(True, alpha=0.3)
+
+    simple_band(axes[1, 1], 'n_clusters_mean', 'n_clusters_std', 'tab:purple',
+                "Number of Individual Topologies", "Number of Individual Topologies",
+                legend_loc='upper right')
+    simple_band(axes[1, 2], 'avg_cluster_mean', 'avg_cluster_std', 'tab:olive',
+                "Average Cluster Size", "Average Size (particles)", legend_loc='lower right')
+
+    # Row 3: largest cluster, size categories, mean Rg
+    simple_band(axes[2, 0], 'largest_cluster_mean', 'largest_cluster_std', 'tab:orange',
+                "Largest Cluster Size", "Cluster Size (particles)", legend_loc='lower right')
+
+    ax = axes[2, 1]
+    if structural and 'size_fractions_times' in structural and \
+            'size_fractions_category_names' in structural:
+        sc_times = _steps_to_us(np.asarray(structural['size_fractions_times']), timestep)
+        category_names = list(structural['size_fractions_category_names'])
+        mean_fractions = []
+        for cat_name in category_names:
+            safe_key = (cat_name.replace(' ', '_').replace('(', '').replace(')', '')
+                        .replace('>', 'gt').replace('-', '_'))
+            mean_key = f'size_frac_{safe_key}_mean'
+            if mean_key in structural:
+                mean_fractions.append(np.asarray(structural[mean_key]))
+            else:
+                mean_fractions.append(np.zeros(len(sc_times)))
+        colors = ["tab:blue", "tab:green", "tab:orange", "tab:red", "tab:purple"]
+        ax.stackplot(sc_times, *mean_fractions, labels=category_names,
+                     colors=colors[:len(category_names)], alpha=0.8)
+        ax.set_ylim([0, 1])
+        ax.legend(loc='upper right', fontsize=FONTSIZE_LEGEND)
+    else:
+        _ensemble_show_no_data(ax)
+    ax.set_xlabel(time_label, fontsize=FONTSIZE_LABEL)
+    ax.set_ylabel("Fraction", fontsize=FONTSIZE_LABEL)
+    ax.set_title("Particles by Size Category", fontsize=FONTSIZE_TITLE, fontweight='bold')
+    ax.grid(True, alpha=0.3, axis='y')
+
+    ax = axes[2, 2]
+    times, mean, std, all_data = _ensemble_struct_ts(
+        structural, timestep, 'morphology_times', 'mean_rg_mean', 'mean_rg_std', 'mean_rg_all')
+    if times is not None and mean is not None:
+        if _ensemble_plot_with_band(ax, times, mean, std, 'tab:blue', n_replicas,
+                                    all_data, show_individual, individual_alpha):
+            ax.legend(loc='lower right', fontsize=FONTSIZE_LEGEND)
+    else:
+        _ensemble_show_no_data(ax)
+    ax.set_xlabel(time_label, fontsize=FONTSIZE_LABEL)
+    ax.set_ylabel("Mean Rg (nm)", fontsize=FONTSIZE_LABEL)
+    ax.set_title("Mean Radius of Gyration", fontsize=FONTSIZE_TITLE, fontweight='bold')
+    ax.grid(True, alpha=0.3)
+
+    # Row 4: coordination (Qt+Ft fused), mean composition, empty
+    ax = axes[3, 0]
+    t_qt, m_qt, s_qt, all_qt = _ensemble_struct_ts(
+        structural, timestep, 'contacts_times', 'mean_coord_qt_mean', 'mean_coord_qt_std',
+        'mean_coord_qt_all')
+    t_ft, m_ft, s_ft, all_ft = _ensemble_struct_ts(
+        structural, timestep, 'contacts_times', 'mean_coord_ft_mean', 'mean_coord_ft_std',
+        'mean_coord_ft_all')
+    coord_plotted = False
+    if t_qt is not None and m_qt is not None:
+        coord_plotted |= _ensemble_plot_with_band(
+            ax, t_qt, m_qt, s_qt, 'tab:blue', n_replicas,
+            all_qt, show_individual, individual_alpha, label='Qt')
+    if t_ft is not None and m_ft is not None:
+        coord_plotted |= _ensemble_plot_with_band(
+            ax, t_ft, m_ft, s_ft, 'tab:red', n_replicas,
+            all_ft, show_individual, individual_alpha, label='Ft')
+    if coord_plotted:
+        ax.legend(loc='lower right', fontsize=FONTSIZE_LEGEND)
+    else:
+        _ensemble_show_no_data(ax)
+    ax.set_xlabel(time_label, fontsize=FONTSIZE_LABEL)
+    ax.set_ylabel("Mean Coordination", fontsize=FONTSIZE_LABEL)
+    ax.set_title("Coordination Number", fontsize=FONTSIZE_TITLE, fontweight='bold')
+    ax.grid(True, alpha=0.3)
+
+    ax = axes[3, 1]
+    times, mean, std, all_data = _ensemble_struct_ts(
+        structural, timestep, 'composition_times', 'mean_composition_mean',
+        'mean_composition_std', 'mean_composition_all')
+    if times is not None and mean is not None:
+        if _ensemble_plot_with_band(ax, times, mean, std, 'tab:blue', n_replicas,
+                                    all_data, show_individual, individual_alpha):
+            ax.axhline(0.5, color='gray', linestyle='--', alpha=0.5, label='_nolegend_')
+            ax.legend(loc='best', fontsize=FONTSIZE_LEGEND)
+    else:
+        _ensemble_show_no_data(ax)
+    ax.set_xlabel(time_label, fontsize=FONTSIZE_LABEL)
+    ax.set_ylabel("Mean Qt Fraction", fontsize=FONTSIZE_LABEL)
+    ax.set_ylim([0, 1])
+    ax.set_title("Mean Cluster Composition", fontsize=FONTSIZE_TITLE, fontweight='bold')
+    ax.grid(True, alpha=0.3)
+
+    axes[3, 2].axis('off')
+
+    plt.tight_layout()
+
+    if save_path_base:
+        for ext in ("svg", "png"):
+            path = f"{save_path_base}.{ext}"
+            fig.savefig(path, format=ext, bbox_inches='tight', dpi=300)
+            print(f"✓ Saved panel to {path}")
+
+    return fig
+
+
+def plot_comparison_panel(
+    comparison: dict,
+    *,
+    show_bands: Optional[bool] = None,
+    figsize: Tuple[float, float] = (24, 17),
+    save_path_base: Optional[str] = None,
+) -> plt.Figure:
+    """Cross-ensemble comparison thesis panel (3x4 grid); optionally saves {base}.svg + .png.
+
+    Rows 1-2 overlay per-ensemble basic statistics (with two ÷N-normalized cluster-size panels);
+    Row 3 overlays structural metrics (needs the live `compare_ensembles` structural data).
+    """
+    print("\nGenerating ensemble comparison thesis panel...")
+
+    fig = plt.figure(figsize=figsize)
+    gs = fig.add_gridspec(3, 4, hspace=0.35, wspace=0.3)
+    show_bands = _get_show_bands_default(comparison['n_ensembles'], show_bands)
+
+    def stat(ax, stat_key, ylabel, title, legend_loc='best', divide_by_N=False):
+        if _comparison_timeseries(ax, comparison, stat_key, ylabel, title,
+                                  show_bands=show_bands, divide_by_N=divide_by_N):
+            ax.legend(loc=legend_loc, fontsize=FONTSIZE_LEGEND)
+
+    # Row 1
+    stat(fig.add_subplot(gs[0, 0]), 'energy', "Energy (kJ/mol)", "Potential Energy",
+         legend_loc='lower left')
+    stat(fig.add_subplot(gs[0, 1]), 'pressure', "Pressure (kJ/(mol·nm³))", "Pressure",
+         legend_loc='upper left')
+    stat(fig.add_subplot(gs[0, 2]), 'bonds', "Number of Bonds", "Number of Bonds",
+         legend_loc='lower right')
+    stat(fig.add_subplot(gs[0, 3]), 'n_clusters', "Number of Individual Topologies",
+         "Number of Individual Topologies", legend_loc='upper right')
+
+    # Row 2
+    stat(fig.add_subplot(gs[1, 0]), 'avg_cluster', "Average Size (particles)",
+         "Average Cluster Size", legend_loc='upper left')
+    stat(fig.add_subplot(gs[1, 1]), 'avg_cluster', "Fraction of particles",
+         "Average Cluster Size (normalized)", legend_loc='upper left', divide_by_N=True)
+    stat(fig.add_subplot(gs[1, 2]), 'largest_cluster', "Cluster Size (particles)",
+         "Largest Cluster Size", legend_loc='upper left')
+    ax_largest_norm = fig.add_subplot(gs[1, 3])
+    stat(ax_largest_norm, 'largest_cluster', "Fraction of particles",
+         "Largest Cluster Size (normalized)", legend_loc='upper left', divide_by_N=True)
+    ax_largest_norm.set_ylim([0, 1])
+
+    # Row 3
+    _comparison_struct_ts(fig.add_subplot(gs[2, 0]), comparison, 'morphology_times',
+                          'mean_rg_mean', 'mean_rg_std', "Mean Rg (nm)",
+                          "Mean Radius of Gyration", show_bands=show_bands, legend_loc='upper left')
+    _comparison_struct_ts(fig.add_subplot(gs[2, 1]), comparison, 'morphology_times',
+                          'mean_rg_normalized_mean', 'mean_rg_normalized_std',
+                          r"Rg / Rg$_{\mathrm{ideal}}$", "Normalized Radius of Gyration",
+                          show_bands=show_bands, legend_loc='lower right')
+    _comparison_coord_fused(fig.add_subplot(gs[2, 2]), comparison,
+                            show_bands=show_bands, legend_loc='lower right')
+    ax_comp = fig.add_subplot(gs[2, 3])
+    _comparison_struct_ts(ax_comp, comparison, 'composition_times', 'mean_composition_mean',
+                          'mean_composition_std', "Mean Qt Fraction", "Mean Cluster Composition",
+                          show_bands=show_bands, legend_loc='lower right')
+    ax_comp.set_ylim([0, 1])
+
+    if save_path_base:
+        for ext in ("svg", "png"):
+            path = f"{save_path_base}.{ext}"
+            fig.savefig(path, format=ext, bbox_inches='tight', dpi=300)
+            print(f"✓ Saved panel to {path}")
 
     return fig
