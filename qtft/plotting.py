@@ -26,7 +26,7 @@ Usage:
 
     # Ensemble plots (after loading data)
     stats, structural, config = analysis.load_ensemble_data(ensemble_dir)
-    plotting.plot_ensemble_observables(stats, config, structural)
+    plotting.plot_ensemble_observables(stats, structural, config)
 """
 
 from __future__ import annotations

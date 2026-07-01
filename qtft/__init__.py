@@ -1,6 +1,6 @@
 """qtft -- Qt-Ft encapsulin / ferritin agglomeration simulation (ReaDDy2).
 
-Public API (see CODE_REVIEW.md / README.md for the architecture):
+Public API (see README.md for the architecture):
 
     from qtft import SimulationConfig, run_one, EnsembleSimulation
     import qtft.analysis as analysis

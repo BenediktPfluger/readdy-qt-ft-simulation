@@ -373,7 +373,7 @@ def _extract_frame_data(
         # topology record at the SAME simulation step by comparing times, instead of assuming
         # trajectory-frame index == topology-record index. That assumption only holds when
         # record_stride == observable_stride; otherwise positions get paired with the wrong
-        # topology record. See CODE_REVIEW.md "B-stride".
+        # topology record.
         record_stride = int(config.record_stride)
         current_frame = 0
 
@@ -2142,7 +2142,7 @@ def load_ensemble_data(results_dir: str) -> Tuple[Dict, Dict, Dict]:
     Example
     -------
     >>> stats, structural, config = load_ensemble_data("ensemble_results/")
-    >>> plot_ensemble_observables(stats, config, structural)
+    >>> plot_ensemble_observables(stats, structural, config)
     """
     stats, npz, config, meta = _load_ensemble_files(results_dir)
     print(f"✓ Loaded statistics from {meta['stats_path']}")

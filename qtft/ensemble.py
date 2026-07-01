@@ -32,7 +32,7 @@ Usage:
 
     # After completion, plot results
     stats, structural, config_dict = ensemble.to_plotting_format()
-    plotting.plot_ensemble_observables(stats, config_dict, structural)
+    plotting.plot_ensemble_observables(stats, structural, config_dict)
 """
 
 from __future__ import annotations
