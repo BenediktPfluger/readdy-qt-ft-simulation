@@ -698,93 +698,53 @@ class SimulationConfig:
         SimulationConfig
             Configured instance
         """
-        # Detect format: nested if 'qt' key is a dict, flat otherwise
+        # Nested format has 'qt' as a dict; flat format uses prefixed scalar keys.
+        # One reconstruction path serves both: `g` reads a sub-config value from the
+        # nested sub-dict when nested, else from the flat key.
         is_nested = isinstance(params.get("qt"), dict)
-        
-        if is_nested:
-            # Nested format (from to_dict / save_json)
-            qt_params = params.get("qt", {})
-            ft_params = params.get("ft", {})
-            topo_params = params.get("topology", {})
-            lj_params = params.get("lj", {})
-            
-            qt = ParticleConfig(
-                name=qt_params.get("name", "Qt"),
-                radius=qt_params.get("radius", 1.0),
-                diffusion=qt_params.get("diffusion", 5.0),
-                cluster_diffusion=qt_params.get("cluster_diffusion", None),
-            )
-            
-            ft = ParticleConfig(
-                name=ft_params.get("name", "Ft"),
-                radius=ft_params.get("radius", 0.25),
-                diffusion=ft_params.get("diffusion", 15.0),
-                cluster_diffusion=ft_params.get("cluster_diffusion", None),
-            )
-            
-            topology = TopologyConfig(
-                name=topo_params.get("name", "QtFt_Cluster"),
-                binding_radius=topo_params.get("binding_radius", 1.5),
-                kon=topo_params.get("kon", 10.0),
-                k_bond=topo_params.get("k_bond", 20.0),
-                ft_monovalent=topo_params.get("ft_monovalent", False),
-                koff=topo_params.get("koff", 0.0),
-            )
-            
-            lj = LennardJonesConfig(
-                epsilon_QtQt=lj_params.get("epsilon_QtQt", 10.0),
-                epsilon_FtFt=lj_params.get("epsilon_FtFt", 10.0),
-                epsilon_QtFt=lj_params.get("epsilon_QtFt", 10.0),
-                epsilon_QtCQtC=lj_params.get("epsilon_QtCQtC", None),
-                epsilon_FtCFtC=lj_params.get("epsilon_FtCFtC", None),
-                epsilon_QtCFtC=lj_params.get("epsilon_QtCFtC", None),
-                epsilon_QtQtC=lj_params.get("epsilon_QtQtC", None),
-                epsilon_FtFtC=lj_params.get("epsilon_FtFtC", None),
-                epsilon_QtCFt=lj_params.get("epsilon_QtCFt", None),
-                epsilon_QtFtC=lj_params.get("epsilon_QtFtC", None),
-                potential_type=lj_params.get("potential_type", "WCA"),
-                cutoff_factor=lj_params.get("cutoff_factor", None),
-            )
-        else:
-            # Flat format (backward compatible)
-            qt = ParticleConfig(
-                name=params.get("qt_name", "Qt"),
-                radius=params.get("qt_radius", 1.0),
-                diffusion=params.get("qt_diffusion", 5.0),
-                cluster_diffusion=params.get("qt_cluster_diffusion", None),
-            )
-            
-            ft = ParticleConfig(
-                name=params.get("ft_name", "Ft"),
-                radius=params.get("ft_radius", 0.25),
-                diffusion=params.get("ft_diffusion", 15.0),
-                cluster_diffusion=params.get("ft_cluster_diffusion", None),
-            )
-            
-            topology = TopologyConfig(
-                name=params.get("topology_name", "QtFt_Cluster"),
-                binding_radius=params.get("binding_radius", 1.5),
-                kon=params.get("kon", 10.0),
-                k_bond=params.get("k_bond", 20.0),
-                ft_monovalent=params.get("ft_monovalent", False),
-                koff=params.get("koff", 0.0),
-            )
-            
-            lj = LennardJonesConfig(
-                epsilon_QtQt=params.get("epsilon_QtQt", 10.0),
-                epsilon_FtFt=params.get("epsilon_FtFt", 10.0),
-                epsilon_QtFt=params.get("epsilon_QtFt", 10.0),
-                epsilon_QtCQtC=params.get("epsilon_QtCQtC", None),
-                epsilon_FtCFtC=params.get("epsilon_FtCFtC", None),
-                epsilon_QtCFtC=params.get("epsilon_QtCFtC", None),
-                epsilon_QtQtC=params.get("epsilon_QtQtC", None),
-                epsilon_FtFtC=params.get("epsilon_FtFtC", None),
-                epsilon_QtCFt=params.get("epsilon_QtCFt", None),
-                epsilon_QtFtC=params.get("epsilon_QtFtC", None),
-                potential_type=params.get("potential_type", "WCA"),
-                cutoff_factor=params.get("cutoff_factor", None),
-            )
-        
+        qtp = params.get("qt", {})
+        ftp = params.get("ft", {})
+        topop = params.get("topology", {})
+        ljp = params.get("lj", {})
+
+        def g(sub, key, default, flat_key):
+            return sub.get(key, default) if is_nested else params.get(flat_key, default)
+
+        qt = ParticleConfig(
+            name=g(qtp, "name", "Qt", "qt_name"),
+            radius=g(qtp, "radius", 1.0, "qt_radius"),
+            diffusion=g(qtp, "diffusion", 5.0, "qt_diffusion"),
+            cluster_diffusion=g(qtp, "cluster_diffusion", None, "qt_cluster_diffusion"),
+        )
+        ft = ParticleConfig(
+            name=g(ftp, "name", "Ft", "ft_name"),
+            radius=g(ftp, "radius", 0.25, "ft_radius"),
+            diffusion=g(ftp, "diffusion", 15.0, "ft_diffusion"),
+            cluster_diffusion=g(ftp, "cluster_diffusion", None, "ft_cluster_diffusion"),
+        )
+        topology = TopologyConfig(
+            name=g(topop, "name", "QtFt_Cluster", "topology_name"),
+            binding_radius=g(topop, "binding_radius", 1.5, "binding_radius"),
+            kon=g(topop, "kon", 10.0, "kon"),
+            k_bond=g(topop, "k_bond", 20.0, "k_bond"),
+            ft_monovalent=g(topop, "ft_monovalent", False, "ft_monovalent"),
+            koff=g(topop, "koff", 0.0, "koff"),
+        )
+        lj = LennardJonesConfig(
+            epsilon_QtQt=g(ljp, "epsilon_QtQt", 10.0, "epsilon_QtQt"),
+            epsilon_FtFt=g(ljp, "epsilon_FtFt", 10.0, "epsilon_FtFt"),
+            epsilon_QtFt=g(ljp, "epsilon_QtFt", 10.0, "epsilon_QtFt"),
+            epsilon_QtCQtC=g(ljp, "epsilon_QtCQtC", None, "epsilon_QtCQtC"),
+            epsilon_FtCFtC=g(ljp, "epsilon_FtCFtC", None, "epsilon_FtCFtC"),
+            epsilon_QtCFtC=g(ljp, "epsilon_QtCFtC", None, "epsilon_QtCFtC"),
+            epsilon_QtQtC=g(ljp, "epsilon_QtQtC", None, "epsilon_QtQtC"),
+            epsilon_FtFtC=g(ljp, "epsilon_FtFtC", None, "epsilon_FtFtC"),
+            epsilon_QtCFt=g(ljp, "epsilon_QtCFt", None, "epsilon_QtCFt"),
+            epsilon_QtFtC=g(ljp, "epsilon_QtFtC", None, "epsilon_QtFtC"),
+            potential_type=g(ljp, "potential_type", "WCA", "potential_type"),
+            cutoff_factor=g(ljp, "cutoff_factor", None, "cutoff_factor"),
+        )
+
         # Handle box_size - convert list to tuple if needed
         box_size = params.get("box_size", (50.0, 50.0, 50.0))
         if isinstance(box_size, list):

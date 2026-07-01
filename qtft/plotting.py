@@ -32,6 +32,7 @@ Usage:
 from __future__ import annotations
 
 import os
+import traceback
 from typing import Any, Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
@@ -778,6 +779,7 @@ def _plot_particle_counts(ax, traj, types, time_label, timestep: float) -> Optio
         return None
     except Exception as e:
         print(f"  Warning: Unexpected error in particle counts plot: {e}")
+        traceback.print_exc()
         ax.text(0.5, 0.5, "No data available", ha="center", va="center", 
                transform=ax.transAxes, fontsize=FONTSIZE_TITLE, color="gray")
         ax.axis("off")
@@ -808,6 +810,7 @@ def _plot_energy(ax, traj, time_label, timestep: float) -> Optional[Dict]:
         return None
     except Exception as e:
         print(f"  Warning: Unexpected error in energy plot: {e}")
+        traceback.print_exc()
         ax.text(0.5, 0.5, "No data available", ha="center", va="center", 
                transform=ax.transAxes, fontsize=FONTSIZE_TITLE, color="gray")
         ax.axis("off")
@@ -834,6 +837,7 @@ def _plot_pressure(ax, traj, time_label, timestep: float):
         ax.axis("off")
     except Exception as e:
         print(f"  Warning: Unexpected error in pressure plot: {e}")
+        traceback.print_exc()
         ax.text(0.5, 0.5, "No data available", ha="center", va="center", 
                transform=ax.transAxes, fontsize=FONTSIZE_TITLE, color="gray")
         ax.axis("off")
@@ -889,6 +893,7 @@ def _plot_cumulative_reactions(ax, traj, time_label, timestep: float):
         ax.axis("off")
     except Exception as e:
         print(f"  Warning: Unexpected error in reactions plot: {e}")
+        traceback.print_exc()
         ax.text(0.5, 0.5, "No data available", ha="center", va="center", 
                transform=ax.transAxes, fontsize=FONTSIZE_TITLE, color="gray")
         ax.axis("off")
@@ -966,6 +971,7 @@ def _plot_rdf(ax, traj):
         ax.axis("off")
     except Exception as e:
         print(f"  Warning: Unexpected error in RDF plot: {e}")
+        traceback.print_exc()
         ax.text(0.5, 0.5, "No data available", ha="center", va="center", 
                transform=ax.transAxes, fontsize=FONTSIZE_TITLE, color="gray")
         ax.axis("off")
@@ -999,6 +1005,7 @@ def _plot_bonds(ax, h5_file, time_label, timestep: float, trajectory=None) -> Op
         return None
     except Exception as e:
         print(f"  Warning: Unexpected error in bonds plot: {e}")
+        traceback.print_exc()
         ax.text(0.5, 0.5, "No data available", ha="center", va="center", 
                transform=ax.transAxes, fontsize=FONTSIZE_TITLE, color="gray")
         ax.axis("off")
