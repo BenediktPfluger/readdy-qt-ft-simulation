@@ -114,6 +114,11 @@ All code lives in the **`qtft`** package; `scripts/` holds thin CLI wrappers.
 - `numpy`, `matplotlib`, `pandas`, `h5py` (pulled in by ReaDDy / standard scientific stack).
 - For visualization of `.xyz` exports: [OVITO](https://www.ovito.org/) (external, optional).
 
+Progress messages are emitted through the `qtft` logger (streamed to stdout by default, so
+notebook output is unchanged). Quiet or redirect it with
+`qtft.set_log_level(logging.WARNING)`; the formatted `print_*` summary/report functions always
+write to stdout.
+
 ---
 
 ## 4. Quick start — single run
@@ -242,7 +247,7 @@ ensemble.run_local(parallel=True, n_workers=10, overwrite=True, equilibration_st
 
 # Plot
 stats, structural, cfg = ensemble.to_plotting_format()
-plotting.plot_ensemble_observables(stats, cfg, structural, show_individual=True,
+plotting.plot_ensemble_observables(stats, structural, cfg, show_individual=True,
                                    save_path="ensemble_observables.svg")
 plotting.plot_ensemble_structural(stats, structural, cfg, show_individual=True,
                                   save_path="ensemble_structural.svg")
@@ -355,7 +360,9 @@ including the composite panels, live in `qtft.plotting`.
 
 **Ensemble:** `plot_ensemble_observables`, `plot_ensemble_structural`,
 `plot_ensemble_size_categories` (all support `show_individual=True` to overlay replica traces), or the
-composite `plotting.plot_ensemble_panel(stats, structural, config, save_path_base=...)`.
+composite `plotting.plot_ensemble_panel(stats, structural, config, save_path_base=...)`. All ensemble
+plotters share the argument order `(stats, structural, config)` — the same order returned by
+`analysis.load_ensemble_data` and `EnsembleSimulation.to_plotting_format`.
 
 **Cross-ensemble comparison:** build a comparison with
 `ae.compare_ensembles({label: dir, ...})` (from `qtft.comparison`, imported as `ae`), then:
